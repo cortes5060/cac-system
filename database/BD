@@ -1,0 +1,180 @@
+CREATE DATABASE CAC;
+GO
+
+USE CAC;
+GO
+
+CREATE TABLE analistas (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    orden INT NOT NULL,
+    activo BIT NOT NULL DEFAULT 1,
+    IdHorario INT NULL,
+    existe BIT NOT NULL DEFAULT 1
+);
+
+CREATE TABLE Horarios
+(
+    id INT IDENTITY(1,1) PRIMARY KEY,
+
+    HoraEntrada TIME NOT NULL,
+    HoraSalida TIME NOT NULL,
+
+    HoraAlmuerzoInicio TIME NULL,
+    HoraAlmuerzoFin TIME NULL
+);
+
+CREATE TABLE casos3cx (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    idAnalista INT NOT NULL,
+    numerochat BIGINT NOT NULL,
+    fecha DATETIME NOT NULL DEFAULT GETDATE(),
+
+    CONSTRAINT FK_casos3cx_analistas
+    FOREIGN KEY (idAnalista) REFERENCES analistas(id)
+);
+
+CREATE TABLE estaciones (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    nombre VARCHAR(150) NOT NULL,
+    existe BIT NOT NULL DEFAULT 1
+);
+
+CREATE TABLE casosAA (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    idAnalista INT NOT NULL,
+    idnombreEDS INT NOT NULL,
+    fecha DATETIME NOT NULL DEFAULT GETDATE(),
+
+    CONSTRAINT FK_casosAA_analistas
+    FOREIGN KEY (idAnalista) REFERENCES analistas(id),
+
+    CONSTRAINT FK_casosAA_estaciones
+    FOREIGN KEY (idnombreEDS) REFERENCES estaciones(id)
+);
+
+CREATE TABLE tiposCaso (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    nombre VARCHAR(50) NOT NULL,
+    activo BIT NOT NULL DEFAULT 1
+);
+
+CREATE TABLE categorias (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    activo BIT NOT NULL DEFAULT 1
+);
+
+CREATE TABLE tickets (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+
+    casoAtendido VARCHAR(500) NOT NULL,
+    EDS VARCHAR(200) NOT NULL,
+
+    idTipoCaso INT NOT NULL,
+    idCategoria INT NOT NULL,
+
+    origenFalla VARCHAR(MAX) NOT NULL,
+    solucion VARCHAR(MAX) NOT NULL,
+
+    idAnalista INT NOT NULL,
+
+    fechaHora DATETIME NOT NULL DEFAULT GETDATE(),
+
+    tiempoAtencionMin INT NOT NULL, -- 🔥 Guardado en minutos
+
+    versiones VARCHAR(200) NULL,
+    observaciones VARCHAR(MAX) NULL,
+
+    CONSTRAINT FK_tickets_analista
+    FOREIGN KEY (idAnalista) REFERENCES analistas(id),
+
+    CONSTRAINT FK_tickets_tipoCaso
+    FOREIGN KEY (idTipoCaso) REFERENCES tiposCaso(id),
+
+    CONSTRAINT FK_tickets_categoria
+    FOREIGN KEY (idCategoria) REFERENCES categorias(id)
+);
+
+
+INSERT INTO analistas (nombre, orden, activo, existe) VALUES
+('Nicol Camargo', 1, 1, 1),
+('Alexander Devia', 2, 1, 1),
+('Estebitan', 3, 1, 1),
+('Jhonatan Cuervo', 4, 1, 1),
+('Sebastian Vera', 5, 1, 1),
+('Nuevo analista', 6, 0, 0),
+('Ricardo Gutierrez', 7, 0, 1);
+
+INSERT INTO Horarios
+(
+HoraEntrada,
+HoraSalida,
+HoraAlmuerzoInicio,
+HoraAlmuerzoFin
+)
+VALUES
+('08:00','17:00','12:00','13:00'),
+('07:00','16:00','12:00','13:00'),
+('09:00','18:00','13:00','14:00');
+
+INSERT INTO estaciones (nombre, existe) VALUES
+('EDS Norte', 1),
+('EDS Centro', 1),
+('EDS Sur', 1),
+('EDS Industrial', 1),
+('EDS Aeropuerto', 1);
+
+INSERT INTO casos3cx (idAnalista, numerochat) VALUES
+(1, 3208363893),
+(2, 3212001245),
+(3, 3102356511),
+(4, 300321451),
+(5, 30032231231451),
+(1, 30032231321400051),
+(6, 3003223101231400051);
+
+INSERT INTO casosAA (idAnalista, idnombreEDS) VALUES
+(1, 1),
+(2, 2),
+(3, 3),
+(4, 1),
+(5, 4),
+(1, 5);
+
+INSERT INTO tiposCaso (nombre) VALUES
+('Chat'),
+('Llamada'),
+('Asignado');
+
+INSERT INTO categorias (nombre) VALUES
+('Error Sistema'),
+('Falla Comunicación'),
+('Configuración'),
+('Consulta Usuario'),
+('Actualización');
+
+INSERT INTO tickets (
+    casoAtendido,
+    EDS,
+    idTipoCaso,
+    idCategoria,
+    origenFalla,
+    solucion,
+    idAnalista,
+    tiempoAtencionMin,
+    versiones,
+    observaciones
+)
+VALUES (
+    'No imprime factura electrónica',
+    'EDS Norte Centro',
+    2,
+    1,
+    'Error de conexión con el servidor de facturación',
+    'Se reinició servicio y se actualizó configuración',
+    1,
+    45,
+    'v2.3.1',
+    'Cliente confirmó funcionamiento correcto'
+);

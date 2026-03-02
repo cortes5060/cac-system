@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+**/node_modules/
+electron/node_modules/
+# logs
+logs
+*.log
+
+# dotenv
+.env
+
+# build
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

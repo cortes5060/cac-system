@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>CAC Insepet</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gradient-to-br from-blue-100 to-red-100 flex items-center justify-center h-screen">
+
+  <div class="bg-white p-10 rounded-3xl shadow-2xl w-[450px]">
+
+    <h1 class="text-3xl font-bold text-center mb-8 text-slate-700">
+      Selecciona tu usuario
+    </h1>
+
+    <div id="listaAnalistas" class="space-y-4"></div>
+
+  </div>
+
+  <div id="modalAnalistaActivo" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center hidden">
+
+    <div class="bg-white rounded-xl shadow-xl p-6 w-96 text-center">
+
+      <h2 class="text-xl font-bold mb-3 text-red-600">
+        Analista ya activo
+      </h2>
+
+      <p class="text-gray-600 mb-4">
+        Ya hay un analista activo con ese nombre.
+      </p>
+
+      <img src="img/bravo.png" class="mx-auto w-24 mb-4" />
+
+      <div class="flex justify-center gap-4">
+
+        <button id="cancelarIngreso" class="px-4 py-2 bg-gray-300 rounded-lg">
+          Cancelar
+        </button>
+
+        <button id="continuarIngreso" class="px-4 py-2 bg-blue-600 text-white rounded-lg">
+          Continuar
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+  <script>
+    const API = "http://localhost:3000";
+    const socket = io(API);
+
+    socket.on("analistaActualizado", (data) => {
+
+      console.log("Evento recibido:", data);
+      cargarAnalistas();
+    });
+
+    document.addEventListener("DOMContentLoaded", () => {
+      cargarAnalistas();
+    });
+
+    async function cargarAnalistas() {
+      const response = await fetch(`${API}/api/analistas`);
+      const analistas = await response.json();
+
+      const contenedor = document.getElementById('listaAnalistas');
+      contenedor.innerHTML = '';
+
+
+
+      analistas.forEach((analista) => {
+
+        const esActivo = analista.activo == 1;
+
+        const button = document.createElement("button");
+
+        button.className = `
+            w-full
+            ${!esActivo ? "bg-blue-600 hover:bg-blue-700" : "bg-red-500 opacity-50"}
+            text-white py-3 rounded-xl transition
+            flex justify-between items-center px-5 shadow-lg
+        `;
+
+        button.innerHTML = `
+            <span class="font-semibold">${analista.nombre}</span>
+            <span class="text-sm bg-white text-black px-3 py-1 rounded-full">
+            ${esActivo ? "Activo" : "Inactivo"}
+            </span>
+        `;
+
+        button.addEventListener("click", () => {
+
+          if (esActivo) {
+
+            const modal = document.getElementById("modalAnalistaActivo");
+            modal.classList.remove("hidden");
+
+            document.getElementById("continuarIngreso").onclick = () => {
+
+              localStorage.setItem('idAnalista', analista.id);
+              window.location.href = "dashboard.html";
+
+            };
+
+            document.getElementById("cancelarIngreso").onclick = () => {
+
+              modal.classList.add("hidden");
+
+            };
+
+            return;
+          }
+
+          localStorage.setItem('idAnalista', analista.id);
+          window.location.href = "dashboard.html";
+        });
+
+        contenedor.appendChild(button);
+      });
+    }
+
+  </script>
+
+</body>
+
+</html>

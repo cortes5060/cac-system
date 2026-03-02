@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Sistema CAC - Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen">
+
+  <!-- HEADER -->
+  <header class="bg-gray-900 text-white px-10 py-4 flex justify-between items-center shadow-lg">
+    <h1 class="text-2xl font-bold tracking-wide">Sistema CAC</h1>
+    <span class="text-sm opacity-70">Panel de Control</span>
+  </header>
+
+  <!-- CONTENIDO -->
+  <main class="max-w-6xl mx-auto p-8 space-y-10">
+
+    <!-- BLOQUE SUPERIOR -->
+    <div class="bg-white shadow-xl rounded-2xl p-8 flex justify-between items-start gap-16">
+
+      <!-- COLUMNA IZQUIERDA -->
+      <div class="space-y-6">
+
+        <h2 id="nombreAnalista" class="text-3xl font-bold text-gray-800"></h2>
+
+        <!-- Estado + Switch -->
+        <div class="flex items-center gap-5">
+
+          <span id="estadoTexto" class="text-lg font-semibold"></span>
+
+          <button onclick="cambiarEstado()"
+            id="switchEstado"
+            class="relative inline-flex h-7 w-14 items-center rounded-full bg-gray-300 transition-colors duration-300">
+
+            <span id="circuloSwitch"
+              class="inline-block h-5 w-5 transform rounded-full bg-white transition-transform duration-300 ml-1">
+            </span>
+
+          </button>
+
+        </div>
+
+        <!-- Contador -->
+        <div>
+          <span class="bg-blue-600 text-white px-5 py-2 rounded-xl text-lg shadow">
+            Casos hoy: <span id="contadorCasos">0</span>
+          </span>
+        </div>
+
+      </div>
+
+      <!-- COLUMNA DERECHA -->
+      <div class="w-80">
+
+        <h3 class="text-lg font-bold text-gray-700 mb-4">
+          Orden Analistas
+        </h3>
+
+        <div id="listaActivos" class="space-y-3"></div>
+
+      </div>
+
+    </div>
+
+    <!-- MÓDULOS -->
+    <div>
+
+      <!-- BOTONES -->
+      <div class="flex gap-6 mb-6">
+
+        <button onclick="mostrarModulo('cx3')"
+          class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow transition">
+          Información 3CX
+        </button>
+
+        <button onclick="mostrarModulo('aa')"
+          class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl shadow transition">
+          Información AA
+        </button>
+
+        <button onclick="mostrarModulo('ticket')"
+          class="bg-gray-800 hover:bg-black text-white px-6 py-3 rounded-xl shadow transition">
+          Crear Ticket
+        </button>
+
+      </div>
+
+      <!-- CONTENIDO DINÁMICO -->
+      <div id="moduloContenido"
+        class="bg-white shadow-xl rounded-2xl p-8 min-h-[250px]">
+        <p class="text-gray-500">Selecciona un módulo para comenzar.</p>
+      </div>
+
+    </div>
+
+    
+
+  </main>
+
+  <!-- SCRIPT -->
+ <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+  <script src="dashboard.js"></script>
+
+</body>
+</html>

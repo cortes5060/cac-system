@@ -17,8 +17,9 @@ builder-debug.yml
 builder-effective-config.yaml
 **/*.blockmap
 
-# ── Base de datos (archivos pesados/binarios) ─────────────
-database/
+# ── Base de datos (solo archivos de datos de SQL Server) ───
+database/BD
+database/CAC
 
 # ── Logs ──────────────────────────────────────────────────
 logs/

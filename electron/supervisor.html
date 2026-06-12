@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Sistema CAC - Supervisor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
+    .topnav  { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
+    .card    { background: white; border-radius: 1.25rem; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
+    .kpi-card { background: white; border-radius: 1rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+    .fade-in { animation: fi 0.35s ease; }
+    @keyframes fi { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+    .section-title {
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #6B7280; margin-bottom: 1rem;
+    }
+    th { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    td { font-size: 0.8rem; }
+    .badge-tipo { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+    #sel-mes, #sel-anio { background-color: rgba(255,255,255,0.12); color: white; }
+    #sel-mes option, #sel-anio option { background-color: #122B4F; color: white; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- NAV -->
+  <nav class="topnav px-8 py-4 flex justify-between items-center shadow-xl sticky top-0 z-30">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:#C41E3A">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="font-black text-white text-base tracking-[0.18em] leading-none">INSEPET</div>
+        <div class="text-blue-300 text-xs tracking-widest">SISTEMA CAC · SUPERVISOR</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-5">
+      <!-- Period selector -->
+      <div class="hidden sm:flex items-center gap-2">
+        <select id="sel-mes" class="text-xs bg-white bg-opacity-10 text-white border border-white border-opacity-20 rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"></select>
+        <select id="sel-anio" class="text-xs bg-white bg-opacity-10 text-white border border-white border-opacity-20 rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"></select>
+        <button onclick="cargarDashboard()" id="btn-actualizar"
+          class="flex items-center gap-1.5 px-3 py-1.5 bg-white bg-opacity-15 hover:bg-opacity-25 text-white rounded-lg text-xs font-semibold transition border border-white border-opacity-20">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Actualizar
+        </button>
+        <span id="cargando" class="hidden text-xs text-blue-300 animate-pulse">Cargando…</span>
+      </div>
+      <div class="text-right hidden sm:block">
+        <div class="text-blue-300 text-xs font-semibold tracking-widest uppercase">Supervisor</div>
+        <div id="supervNombreNav" class="text-white font-bold text-sm"></div>
+      </div>
+      <button onclick="cerrarSesion()"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:bg-white hover:bg-opacity-10 transition border border-white border-opacity-20">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Salir
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="max-w-7xl mx-auto px-6 py-7 space-y-6 fade-in">
+
+    <!-- KPIs -->
+    <div class="grid grid-cols-2 xl:grid-cols-5 gap-4" id="kpi-row">
+      <!-- filled by JS -->
+    </div>
+
+    <!-- Charts row 1: Tickets/Analista + Top Categorías -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="card p-6">
+        <p class="section-title">Tickets por Analista · Este Mes</p>
+        <div style="position:relative;height:280px"><canvas id="chart-analistas"></canvas></div>
+      </div>
+      <div class="card p-6">
+        <p class="section-title">Top 10 Categorías Más Frecuentes</p>
+        <div style="position:relative;height:280px"><canvas id="chart-categorias"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Chart row 2: Tickets por Día (full width) -->
+    <div class="card p-6">
+      <p class="section-title">Tickets por Día del Mes</p>
+      <div style="position:relative;height:200px"><canvas id="chart-dias"></canvas></div>
+    </div>
+
+    <!-- Charts row 3: Donut + Tiempo/Analista -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="card p-6">
+        <p class="section-title">Distribución por Tipo de Caso</p>
+        <div style="position:relative;height:240px"><canvas id="chart-tipos"></canvas></div>
+      </div>
+      <div class="card p-6">
+        <p class="section-title">Tiempo Promedio de Atención por Analista</p>
+        <div style="position:relative;height:240px"><canvas id="chart-tiempo-analista"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Heatmap EDS × Categoría -->
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <p class="section-title mb-0">Mapa de Calor · EDS × Categoría</p>
+        <div class="flex items-center gap-2 text-xs text-gray-400">
+          <span>Bajo</span>
+          <div class="flex gap-0.5">
+            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.12)"></div>
+            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.30)"></div>
+            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.55)"></div>
+            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.78)"></div>
+            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,1.00)"></div>
+          </div>
+          <span>Alto</span>
+        </div>
+      </div>
+      <div id="heatmap-eds"></div>
+    </div>
+
+    <!-- Tabla: Últimos 10 tickets -->
+    <div class="card p-6">
+      <p class="section-title">Últimos 10 Tickets Registrados</p>
+      <div class="overflow-x-auto" id="tabla-ultimos"></div>
+    </div>
+
+    <!-- Tablas: Ranking EDS + Categorías Tiempo -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10">
+      <div class="card p-6">
+        <p class="section-title">Ranking EDS con Más Incidencias</p>
+        <div id="tabla-eds"></div>
+      </div>
+      <div class="card p-6">
+        <p class="section-title">Categorías con Mayor Tiempo Promedio</p>
+        <div id="tabla-cat-tiempo"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="config.js"></script>
+  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
+  <script src="supervisor.js"></script>
+</body>
+</html>

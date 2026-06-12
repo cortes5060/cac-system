@@ -1,61 +1,149 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>CAC Insepet</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .bg-navy       { background-color: #122B4F; }
+    .bg-ins-red    { background-color: #C41E3A; }
+    .bg-ins-green  { background-color: #1B5E20; }
+    .text-ins-red  { color: #C41E3A; }
+    .stripe-bg {
+      background-color: #0D1F3A;
+      background-image: repeating-linear-gradient(
+        -55deg,
+        transparent 0px, transparent 18px,
+        rgba(255,255,255,0.025) 18px, rgba(255,255,255,0.025) 36px
+      );
+    }
+    .btn-analyst { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+    .btn-analyst:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.10); }
+    .fade-in { animation: fadeIn 0.4s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    #listaAnalistas::-webkit-scrollbar { width: 4px; }
+    #listaAnalistas::-webkit-scrollbar-track { background: transparent; }
+    #listaAnalistas::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 4px; }
+    #listaAnalistas::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+  </style>
 </head>
 
-<body class="bg-gradient-to-br from-blue-100 to-red-100 flex items-center justify-center h-screen">
+<body class="min-h-screen flex stripe-bg">
 
-  <div class="bg-white p-10 rounded-3xl shadow-2xl w-[450px]">
+  <!-- ===== LEFT BRANDING ===== -->
+  <div class="hidden lg:flex flex-col justify-between w-5/12 p-14 text-white" style="background: linear-gradient(160deg,#0D1F3A 0%,#122B4F 60%,#1a3a6b 100%)">
 
-    <h1 class="text-3xl font-bold text-center mb-8 text-slate-700">
-      Selecciona tu usuario
-    </h1>
-
-    <div id="listaAnalistas" class="space-y-4"></div>
-
-  </div>
-
-  <div id="modalAnalistaActivo" class="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center hidden">
-
-    <div class="bg-white rounded-xl shadow-xl p-6 w-96 text-center">
-
-      <h2 class="text-xl font-bold mb-3 text-red-600">
-        Analista ya activo
-      </h2>
-
-      <p class="text-gray-600 mb-4">
-        Ya hay un analista activo con ese nombre.
-      </p>
-
-      <img src="img/bravo.png" class="mx-auto w-24 mb-4" />
-
-      <div class="flex justify-center gap-4">
-
-        <button id="cancelarIngreso" class="px-4 py-2 bg-gray-300 rounded-lg">
-          Cancelar
-        </button>
-
-        <button id="continuarIngreso" class="px-4 py-2 bg-blue-600 text-white rounded-lg">
-          Continuar
-        </button>
-
+    <!-- Logo -->
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg bg-ins-red">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
       </div>
+      <div>
+        <div class="font-black text-xl tracking-[0.2em] leading-none">INSEPET</div>
+        <div class="text-blue-300 text-xs tracking-widest mt-0.5">GRUPO EMPRESARIAL</div>
+      </div>
+    </div>
 
+    <!-- Heading -->
+    <div>
+      <div class="text-xs font-bold tracking-widest text-blue-300 uppercase mb-4">Sistema de Gestión</div>
+      <h1 class="text-5xl font-black leading-tight mb-5">
+        Centro de<br>
+        <span class="text-ins-red">Atención</span><br>
+        al Cliente
+      </h1>
+      <p class="text-blue-200 text-sm leading-relaxed max-w-xs">
+        Plataforma de gestión de cola de atención en tiempo real para el equipo CAC INSEPET.
+      </p>
+    </div>
+
+    <!-- Color strip + crédito -->
+    <div>
+      <div class="flex gap-2 mb-3">
+        <div class="h-1.5 w-10 rounded-full bg-ins-red"></div>
+        <div class="h-1.5 w-10 rounded-full" style="background:#1565C0"></div>
+        <div class="h-1.5 w-10 rounded-full bg-ins-green"></div>
+      </div>
+      <p class="text-blue-900 text-xs" style="opacity:0.4">By Esteban</p>
     </div>
 
   </div>
 
-  <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+  <!-- ===== RIGHT LOGIN ===== -->
+  <div class="flex-1 flex items-center justify-center p-8">
+    <div class="w-full max-w-md fade-in">
+
+      <!-- Mobile logo -->
+      <div class="lg:hidden text-center mb-8">
+        <div class="font-black text-3xl text-white tracking-[0.2em]">INSEPET</div>
+        <div class="text-blue-300 text-xs tracking-widest mt-1">GRUPO EMPRESARIAL · CAC</div>
+      </div>
+
+      <!-- Card -->
+      <div class="bg-white rounded-3xl shadow-2xl overflow-hidden">
+
+        <!-- Card header -->
+        <div class="px-8 py-6" style="background: linear-gradient(135deg, #122B4F 0%, #1565C0 100%)">
+          <div class="text-xs font-bold tracking-widest text-blue-200 uppercase mb-1">Sistema CAC</div>
+          <h2 class="text-white text-xl font-bold">Selecciona tu analista</h2>
+        </div>
+
+        <!-- Analyst list -->
+        <div class="px-6 pt-5 pb-2">
+          <div id="listaAnalistas" class="space-y-1.5 overflow-y-auto pr-1" style="max-height:360px">
+            <div class="text-center text-gray-400 py-6 text-sm">Cargando analistas...</div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+          <p class="text-xs text-gray-400">© 2026 INSEPET Grupo Empresarial</p>
+          <p class="text-xs text-gray-300 font-medium tracking-wide">By Esteban</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== MODAL ANALISTA ACTIVO ===== -->
+  <div id="modalAnalistaActivo" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center hidden z-50">
+    <div class="bg-white rounded-3xl shadow-2xl w-96 mx-4 overflow-hidden fade-in">
+
+      <div class="px-8 py-5 bg-ins-red">
+        <h2 class="text-white text-lg font-bold">Analista en sesión activa</h2>
+      </div>
+
+      <div class="p-8 text-center">
+        <p class="text-gray-600 text-sm mb-2">Este analista ya tiene una sesión abierta.</p>
+        <p class="text-gray-600 text-sm mb-6">¿Deseas continuar de todas formas?</p>
+        <img src="img/bravo.png" class="mx-auto w-20 mb-6 rounded-xl" />
+        <div class="flex gap-3">
+          <button id="cancelarIngreso"
+            class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition">
+            Cancelar
+          </button>
+          <button id="continuarIngreso"
+            class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition bg-navy"
+            style="background:#122B4F">
+            Continuar
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
   <script>
-    const API = "http://localhost:3000";
     const socket = io(API);
 
     socket.on("analistaActualizado", (data) => {
-
       console.log("Evento recibido:", data);
       cargarAnalistas();
     });
@@ -71,51 +159,93 @@
       const contenedor = document.getElementById('listaAnalistas');
       contenedor.innerHTML = '';
 
+      // Coordinadores primero, supervisores segundo, analistas al final
+      analistas.sort((a, b) => {
+        const order = { 2: 0, 3: 1, 1: 2 };
+        return (order[a.idRol] ?? 3) - (order[b.idRol] ?? 3);
+      });
 
+      let seccionActual = null;
 
       analistas.forEach((analista) => {
+        const esActivo  = analista.activo == 1;
+        const esAdmin   = analista.idRol !== 1;
+        const inicial   = analista.nombre.charAt(0).toUpperCase();
+        const seccion   = esAdmin ? 'admin' : 'analistas';
 
-        const esActivo = analista.activo == 1;
+        // Separador de sección
+        if (seccion !== seccionActual) {
+          seccionActual = seccion;
+          const sep = document.createElement('div');
+          sep.className = `flex items-center gap-2 ${seccion === 'analistas' ? 'mt-3' : ''} mb-1`;
+          sep.innerHTML = `
+            <span class="text-xs font-bold tracking-widest uppercase"
+              style="color:${esAdmin ? '#1565C0' : '#6B7280'};opacity:0.7">
+              ${esAdmin ? 'Administración' : 'Analistas'}
+            </span>
+            <div class="flex-1 h-px" style="background:${esAdmin ? '#DBEAFE' : '#F3F4F6'}"></div>`;
+          contenedor.appendChild(sep);
+        }
 
         const button = document.createElement("button");
+        button.className = `btn-analyst w-full flex justify-between items-center px-4 py-3 rounded-xl text-left border transition-all ${
+          esAdmin
+            ? 'border-blue-100 bg-gradient-to-r from-blue-50 to-white text-gray-800 hover:border-blue-300 hover:from-blue-100'
+            : esActivo
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-gray-200 bg-white text-gray-800 hover:border-blue-300 hover:bg-blue-50'
+        }`;
 
-        button.className = `
-            w-full
-            ${!esActivo ? "bg-blue-600 hover:bg-blue-700" : "bg-red-500 opacity-50"}
-            text-white py-3 rounded-xl transition
-            flex justify-between items-center px-5 shadow-lg
-        `;
+        const roles = { 1: null, 2: 'Coordinador', 3: 'Supervisor' };
+        const rolLabel = roles[analista.idRol];
 
         button.innerHTML = `
-            <span class="font-semibold">${analista.nombre}</span>
-            <span class="text-sm bg-white text-black px-3 py-1 rounded-full">
-            ${esActivo ? "Activo" : "Inactivo"}
-            </span>
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+              style="background:${analista.idRol === 1 ? (esActivo ? '#C41E3A' : '#122B4F') : analista.idRol === 3 ? '#1565C0' : '#6B7280'}">
+              ${inicial}
+            </div>
+            <div>
+              <span class="font-semibold text-sm block">${analista.nombre}</span>
+              ${rolLabel ? `<span class="text-xs text-gray-400">${rolLabel}</span>` : ''}
+            </div>
+          </div>
+          <span class="text-xs font-bold px-2.5 py-1 rounded-full ${
+            analista.idRol === 1
+              ? (esActivo ? 'bg-red-200 text-red-700' : 'bg-green-100 text-green-700')
+              : analista.idRol === 3 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'
+          }">
+            ${analista.idRol === 1 ? (esActivo ? 'En sesión' : 'Disponible') : analista.idRol === 3 ? 'Supervisor' : 'Coordinador'}
+          </span>
         `;
 
         button.addEventListener("click", () => {
-
-          if (esActivo) {
-
-            const modal = document.getElementById("modalAnalistaActivo");
-            modal.classList.remove("hidden");
-
-            document.getElementById("continuarIngreso").onclick = () => {
-
-              localStorage.setItem('idAnalista', analista.id);
-              window.location.href = "dashboard.html";
-
-            };
-
-            document.getElementById("cancelarIngreso").onclick = () => {
-
-              modal.classList.add("hidden");
-
-            };
-
+          if (analista.idRol === 2) {
+            mostrarModalPassword(analista);
             return;
           }
-
+          if (analista.idRol === 3) {
+            localStorage.setItem('supervId',     String(analista.id));
+            localStorage.setItem('supervNombre', analista.nombre);
+            window.location.href = 'supervisor.html';
+            return;
+          }
+          if (analista.idRol !== 1) {
+            mostrarModalRolRestringido(analista.nombre, analista.idRol);
+            return;
+          }
+          if (esActivo) {
+            const modal = document.getElementById("modalAnalistaActivo");
+            modal.classList.remove("hidden");
+            document.getElementById("continuarIngreso").onclick = () => {
+              localStorage.setItem('idAnalista', analista.id);
+              window.location.href = "dashboard.html";
+            };
+            document.getElementById("cancelarIngreso").onclick = () => {
+              modal.classList.add("hidden");
+            };
+            return;
+          }
           localStorage.setItem('idAnalista', analista.id);
           window.location.href = "dashboard.html";
         });
@@ -123,9 +253,135 @@
         contenedor.appendChild(button);
       });
     }
+    function mostrarModalPassword(analista) {
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 fade-in';
+      modal.innerHTML = `
+        <div class="bg-white rounded-3xl shadow-2xl w-96 mx-4 overflow-hidden">
+          <div class="px-8 py-6" style="background: linear-gradient(135deg, #122B4F, #1565C0)">
+            <div class="text-blue-200 text-xs font-bold tracking-widest uppercase mb-1">Acceso Coordinador</div>
+            <h2 class="text-white text-xl font-bold">${analista.nombre}</h2>
+          </div>
+          <div class="p-8">
+            <label class="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Contraseña</label>
+            <div class="relative mb-1">
+              <input type="password" id="coordPassword" placeholder="••••••••"
+                class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
+                onkeypress="if(event.key==='Enter') verificarPasswordCoord(${analista.id})"/>
+              <button type="button" onclick="toggleVerPassword()"
+                class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition">
+                <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+            <p id="coordError" class="text-red-500 text-xs mb-5 hidden"></p>
+            <div class="flex gap-3 mt-5">
+              <button onclick="this.closest('.fixed').remove()"
+                class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition">
+                Cancelar
+              </button>
+              <button id="coordLoginBtn" onclick="verificarPasswordCoord(${analista.id})"
+                class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition"
+                style="background: linear-gradient(135deg, #122B4F, #1565C0)">
+                Ingresar
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+      setTimeout(() => document.getElementById('coordPassword')?.focus(), 80);
+    }
 
+    function toggleVerPassword() {
+      const input = document.getElementById('coordPassword');
+      const icon  = document.getElementById('eyeIcon');
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+      } else {
+        input.type = 'password';
+        icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+      }
+    }
+
+    async function verificarPasswordCoord(id) {
+      const input = document.getElementById('coordPassword');
+      const btn   = document.getElementById('coordLoginBtn');
+      const error = document.getElementById('coordError');
+      const password = input?.value;
+      if (!password) return;
+
+      btn.disabled    = true;
+      btn.textContent = '...';
+      error.classList.add('hidden');
+
+      try {
+        const res  = await fetch(`${API}/api/coordinador/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, password })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          error.textContent = data.error || 'Contraseña incorrecta';
+          error.classList.remove('hidden');
+          btn.disabled    = false;
+          btn.textContent = 'Ingresar';
+          input.value = '';
+          input.focus();
+          return;
+        }
+
+        localStorage.setItem('coordId',     String(data.coordinador.id));
+        localStorage.setItem('coordNombre', data.coordinador.nombre);
+        window.location.href = 'coordinador.html';
+
+      } catch {
+        error.textContent = 'Error de conexión. Verifica que el servidor esté activo.';
+        error.classList.remove('hidden');
+        btn.disabled    = false;
+        btn.textContent = 'Ingresar';
+      }
+    }
+
+    function mostrarModalRolRestringido(nombre, idRol) {
+      const rolesNombre = { 2: 'Coordinador', 3: 'Supervisor' };
+      const rolNombre   = rolesNombre[idRol] || 'Rol restringido';
+
+      const modal = document.createElement('div');
+      modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 fade-in';
+      modal.innerHTML = `
+        <div class="bg-white rounded-3xl shadow-2xl w-96 mx-4 overflow-hidden">
+          <div class="px-8 py-5" style="background: linear-gradient(135deg, #122B4F, #1565C0)">
+            <div class="text-blue-200 text-xs font-bold tracking-widest uppercase mb-1">${rolNombre}</div>
+            <h2 class="text-white text-lg font-bold">${nombre}</h2>
+          </div>
+          <div class="p-8 text-center">
+            <div class="w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center" style="background:#EEF0F6">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="1.5">
+                <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </div>
+            <p class="text-gray-700 font-semibold mb-1">Panel en construcción</p>
+            <p class="text-gray-400 text-sm mb-6">
+              El módulo para <strong>${rolNombre}</strong> está próximamente disponible.<br>
+              Por ahora solo los analistas pueden ingresar.
+            </p>
+            <button onclick="this.closest('.fixed').remove()"
+              class="w-full py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition"
+              style="background:#122B4F">
+              Entendido
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
   </script>
 
 </body>
-
 </html>

@@ -3,7 +3,7 @@ const { sql, pool } = require('../config/db');
 const getAnalistas = async (req, res) => {
   try {
     const result = await (await pool).request().query(`
-      SELECT id, nombre, orden, activo
+      SELECT id, nombre, orden, activo, idRol
       FROM analistas
       WHERE existe = 1
       ORDER BY orden

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Sistema CAC - Coordinador</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
+    .topnav { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
+    .card { background: white; border-radius: 1.25rem; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
+    .tab-btn { transition: all 0.2s; }
+    .tab-btn.active { background: #122B4F; color: white; }
+    .fade-in { animation: fi 0.3s ease; }
+    @keyframes fi { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+    .btn-green  { background: linear-gradient(135deg, #1B5E20, #2E7D32); }
+    .btn-navy   { background: linear-gradient(135deg, #122B4F, #1565C0); }
+    .btn-red    { background: #C41E3A; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- TOP NAV -->
+  <nav class="topnav px-8 py-4 flex justify-between items-center shadow-xl">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:#C41E3A">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+          <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="font-black text-white text-base tracking-[0.18em] leading-none">INSEPET</div>
+        <div class="text-blue-300 text-xs tracking-widest">SISTEMA CAC · COORDINADOR</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="text-right hidden sm:block">
+        <div class="text-blue-300 text-xs font-semibold tracking-widest uppercase">Coordinador</div>
+        <div id="coordNombre" class="text-white font-bold text-sm"></div>
+      </div>
+      <button onclick="cerrarSesion()"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:bg-white hover:bg-opacity-10 transition border border-white border-opacity-20">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Salir
+      </button>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="max-w-5xl mx-auto px-6 py-7">
+    <div class="card overflow-hidden">
+
+      <!-- TABS -->
+      <div class="flex gap-1 px-5 pt-4 border-b border-gray-100 overflow-x-auto">
+        <button onclick="activarTab('analistas')" id="tab-analistas"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          👥 Analistas
+        </button>
+        <button onclick="activarTab('orden')" id="tab-orden"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          🔄 Orden de Cola
+        </button>
+        <button onclick="activarTab('categorias')" id="tab-categorias"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          🏷️ Categorías
+        </button>
+        <button onclick="activarTab('eds')" id="tab-eds"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          ⛽ Estaciones EDS
+        </button>
+        <button onclick="activarTab('horarios')" id="tab-horarios"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          🕐 Horarios
+        </button>
+      </div>
+
+      <!-- CONTENT -->
+      <div id="tabContenido" class="p-7 min-h-64">
+        <div class="flex flex-col items-center justify-center py-14 text-gray-300">
+          <p class="text-sm font-medium text-gray-400">Selecciona una sección</p>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
+  <script>
+    function activarTab(tipo) {
+      ['analistas','orden','categorias','eds','horarios'].forEach(t => {
+        document.getElementById('tab-' + t)?.classList.remove('active');
+      });
+      document.getElementById('tab-' + tipo)?.classList.add('active');
+      mostrarSeccion(tipo);
+    }
+  </script>
+  <script src="coordinador.js"></script>
+
+</body>
+</html>

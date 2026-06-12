@@ -8,10 +8,17 @@ const getAnalista = async (req, res) => {
     const result = await connection.request()
       .input("id", id)
       .query(`
-      SELECT id, nombre, orden, activo
-      FROM analistas
-      WHERE id = @id
-    `);
+        SELECT
+          a.id, a.nombre, a.orden, a.activo, a.idRol,
+          ISNULL((
+            SELECT COUNT(*)
+            FROM casos3cx
+            WHERE idAnalista = a.id
+              AND CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
+          ), 0) AS casosHoy
+        FROM analistas a
+        WHERE a.id = @id
+      `);
 
     res.json(result.recordset[0]);
   } catch (error) {
@@ -70,24 +77,80 @@ const cambiarEstado = async (req, res) => {
 
     if (activo == 1) {
 
-      const maxOrdenResult = await connection.request()
-        .query(`
-          SELECT ISNULL(MAX(orden), 0) AS maxOrden
-          FROM analistas
-          WHERE activo = 1
-        `);
-
-      const maxOrden = maxOrdenResult.recordset[0].maxOrden;
-
-      await connection.request()
+      // Verificar si el analista ya tomó algún caso hoy
+      const casosHoyResult = await connection.request()
         .input("id", sql.Int, id)
-        .input("nuevoOrden", sql.Int, maxOrden + 1)
         .query(`
-          UPDATE analistas
-          SET activo = 1,
-              orden = @nuevoOrden
-          WHERE id = @id
+          SELECT COUNT(*) AS casos
+          FROM casos3cx
+          WHERE idAnalista = @id
+            AND CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
         `);
+
+      const casosHoy = casosHoyResult.recordset[0].casos;
+
+      if (casosHoy === 0) {
+        // Sin casos hoy: debe quedar antes de quienes ya tomaron casos
+        const primerConCasosResult = await connection.request()
+          .query(`
+            SELECT ISNULL(MIN(a.orden), 0) AS primerConCasos
+            FROM analistas a
+            INNER JOIN (
+              SELECT DISTINCT idAnalista
+              FROM casos3cx
+              WHERE CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
+            ) c ON a.id = c.idAnalista
+            WHERE a.activo = 1
+          `);
+
+        const primerConCasos = primerConCasosResult.recordset[0].primerConCasos;
+
+        if (primerConCasos > 0) {
+          // Hay analistas con casos hoy: desplazarlos para insertar antes de ellos
+          await connection.request()
+            .input("desde", sql.Int, primerConCasos)
+            .query(`
+              UPDATE analistas
+              SET orden = orden + 1
+              WHERE activo = 1 AND orden >= @desde
+            `);
+
+          await connection.request()
+            .input("id", sql.Int, id)
+            .input("nuevoOrden", sql.Int, primerConCasos)
+            .query(`
+              UPDATE analistas
+              SET activo = 1, orden = @nuevoOrden
+              WHERE id = @id
+            `);
+        } else {
+          // Nadie ha tomado casos hoy: ir al final de la cola (orden normal)
+          const maxOrdenResult = await connection.request()
+            .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
+
+          await connection.request()
+            .input("id", sql.Int, id)
+            .input("nuevoOrden", sql.Int, maxOrdenResult.recordset[0].maxOrden + 1)
+            .query(`
+              UPDATE analistas
+              SET activo = 1, orden = @nuevoOrden
+              WHERE id = @id
+            `);
+        }
+      } else {
+        // Ya tomó casos hoy: va al final de la cola
+        const maxOrdenResult = await connection.request()
+          .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
+
+        await connection.request()
+          .input("id", sql.Int, id)
+          .input("nuevoOrden", sql.Int, maxOrdenResult.recordset[0].maxOrden + 1)
+          .query(`
+            UPDATE analistas
+            SET activo = 1, orden = @nuevoOrden
+            WHERE id = @id
+          `);
+      }
 
       const io = req.app.get("io");
       io.emit("analistaActualizado", { id, activo });

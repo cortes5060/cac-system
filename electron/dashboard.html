@@ -4,103 +4,167 @@
   <meta charset="UTF-8">
   <title>Sistema CAC - Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
+    .topnav { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
+    .card { background: white; border-radius: 1.25rem; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
+    #switchEstado { transition: background-color 0.3s; }
+    #circuloSwitch { transition: transform 0.3s; }
+    .tab-btn { transition: all 0.2s; }
+    .tab-btn.active { background: #122B4F; color: white; }
+    .fade-in { animation: fi 0.3s ease; }
+    @keyframes fi { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  </style>
 </head>
 
-<body class="bg-gray-100 min-h-screen">
+<body class="min-h-screen">
 
-  <!-- HEADER -->
-  <header class="bg-gray-900 text-white px-10 py-4 flex justify-between items-center shadow-lg">
-    <h1 class="text-2xl font-bold tracking-wide">Sistema CAC</h1>
-    <span class="text-sm opacity-70">Panel de Control</span>
-  </header>
+  <!-- ===== TOP NAV ===== -->
+  <nav class="topnav px-8 py-4 flex justify-between items-center shadow-xl">
 
-  <!-- CONTENIDO -->
-  <main class="max-w-6xl mx-auto p-8 space-y-10">
+    <!-- Logo -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:#C41E3A">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="font-black text-white text-base tracking-[0.18em] leading-none">INSEPET</div>
+        <div class="text-blue-300 text-xs tracking-widest">SISTEMA CAC</div>
+      </div>
+    </div>
 
-    <!-- BLOQUE SUPERIOR -->
-    <div class="bg-white shadow-xl rounded-2xl p-8 flex justify-between items-start gap-16">
-
-      <!-- COLUMNA IZQUIERDA -->
-      <div class="space-y-6">
-
-        <h2 id="nombreAnalista" class="text-3xl font-bold text-gray-800"></h2>
-
-        <!-- Estado + Switch -->
-        <div class="flex items-center gap-5">
-
-          <span id="estadoTexto" class="text-lg font-semibold"></span>
-
-          <button onclick="cambiarEstado()"
-            id="switchEstado"
-            class="relative inline-flex h-7 w-14 items-center rounded-full bg-gray-300 transition-colors duration-300">
-
-            <span id="circuloSwitch"
-              class="inline-block h-5 w-5 transform rounded-full bg-white transition-transform duration-300 ml-1">
-            </span>
-
-          </button>
-
-        </div>
-
-        <!-- Contador -->
-        <div>
-          <span class="bg-blue-600 text-white px-5 py-2 rounded-xl text-lg shadow">
-            Casos hoy: <span id="contadorCasos">0</span>
+    <!-- Right: analyst + toggle -->
+    <div class="flex items-center gap-5">
+      <div class="text-right hidden sm:block">
+        <div class="text-blue-300 text-xs font-semibold tracking-widest uppercase">Analista</div>
+        <div id="nombreAnalista" class="text-white font-bold text-sm"></div>
+      </div>
+      <div class="flex items-center gap-3 bg-white bg-opacity-10 border border-white border-opacity-15 rounded-2xl px-4 py-2.5">
+        <span id="estadoTexto" class="font-semibold text-sm text-white"></span>
+        <button onclick="cambiarEstado()" id="switchEstado"
+          class="relative inline-flex h-7 w-14 items-center rounded-full bg-gray-600 transition-colors duration-300">
+          <span id="circuloSwitch"
+            class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-300 ml-1">
           </span>
+        </button>
+      </div>
+      <button onclick="cerrarSesion()"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:bg-white hover:bg-opacity-10 transition border border-white border-opacity-20">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Salir
+      </button>
+    </div>
+
+  </nav>
+
+  <!-- ===== MAIN ===== -->
+  <main class="max-w-6xl mx-auto px-6 py-7 space-y-6">
+
+    <!-- TOP ROW -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- STATS CARD -->
+      <div class="card p-6 flex flex-col gap-4">
+
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
+          <span class="text-xs font-bold text-gray-400 tracking-widest uppercase">Mi actividad</span>
+        </div>
+
+        <div class="rounded-2xl p-5 flex items-center justify-between"
+          style="background:linear-gradient(135deg,#122B4F,#1565C0)">
+          <div>
+            <div class="text-blue-200 text-xs font-semibold tracking-wide uppercase mb-1">Casos hoy</div>
+            <div class="text-white font-black text-5xl leading-none" id="contadorCasos">0</div>
+          </div>
+          <div class="w-14 h-14 rounded-2xl bg-white bg-opacity-15 flex items-center justify-center">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
+              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+              <rect x="9" y="3" width="6" height="4" rx="1"/>
+              <path d="M9 12h6M9 16h4"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Mobile: analista name -->
+        <div class="sm:hidden rounded-xl bg-gray-50 px-4 py-3 border border-gray-100">
+          <div class="text-xs text-gray-400 mb-0.5">Analista activo</div>
+          <div class="font-bold text-gray-800 text-sm" id="nombreAnalistaMobile"></div>
         </div>
 
       </div>
 
-      <!-- COLUMNA DERECHA -->
-      <div class="w-80">
+      <!-- QUEUE CARD -->
+      <div class="card p-6 lg:col-span-2">
 
-        <h3 class="text-lg font-bold text-gray-700 mb-4">
-          Orden Analistas
-        </h3>
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-1 h-5 rounded-full" style="background:#C41E3A"></div>
+          <span class="text-xs font-bold text-gray-400 tracking-widest uppercase">Cola de atención</span>
+        </div>
 
-        <div id="listaActivos" class="space-y-3"></div>
+        <div id="listaActivos" class="space-y-2.5">
+          <div class="text-gray-400 text-sm text-center py-4">Sin analistas activos</div>
+        </div>
 
       </div>
 
     </div>
 
-    <!-- MÓDULOS -->
-    <div>
+    <!-- MODULES CARD -->
+    <div class="card overflow-hidden">
 
-      <!-- BOTONES -->
-      <div class="flex gap-6 mb-6">
-
-        <button onclick="mostrarModulo('cx3')"
-          class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl shadow transition">
-          Información 3CX
+      <!-- Tab buttons -->
+      <div class="flex gap-1 px-5 pt-4 border-b border-gray-100">
+        <button onclick="activarTab('cx3')" id="tab-cx3"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          📞 Información 3CX
         </button>
-
-        <button onclick="mostrarModulo('aa')"
-          class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl shadow transition">
-          Información AA
+        <button onclick="activarTab('aa')" id="tab-aa"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          📊 Métricas
         </button>
-
-        <button onclick="mostrarModulo('ticket')"
-          class="bg-gray-800 hover:bg-black text-white px-6 py-3 rounded-xl shadow transition">
-          Crear Ticket
+        <button onclick="activarTab('ticket')" id="tab-ticket"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          🎫 Crear Ticket
         </button>
-
       </div>
 
-      <!-- CONTENIDO DINÁMICO -->
-      <div id="moduloContenido"
-        class="bg-white shadow-xl rounded-2xl p-8 min-h-[250px]">
-        <p class="text-gray-500">Selecciona un módulo para comenzar.</p>
+      <!-- Content -->
+      <div id="moduloContenido" class="p-7">
+        <div class="flex flex-col items-center justify-center py-12 text-gray-300">
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" class="mb-3">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+          <p class="text-sm font-medium text-gray-400">Selecciona un módulo para comenzar</p>
+        </div>
       </div>
 
     </div>
-
-    
 
   </main>
 
-  <!-- SCRIPT -->
- <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="config.js"></script>
+  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
+  <script>
+    function activarTab(tipo) {
+      ['cx3','aa','ticket'].forEach(t => {
+        const tab = document.getElementById('tab-' + t);
+        if (tab) tab.classList.remove('active');
+      });
+      const active = document.getElementById('tab-' + tipo);
+      if (active) active.classList.add('active');
+      mostrarModulo(tipo);
+    }
+  </script>
   <script src="dashboard.js"></script>
 
 </body>

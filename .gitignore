@@ -1,22 +1,41 @@
-# dependencies
+# ── Dependencias ──────────────────────────────────────────
 node_modules/
 **/node_modules/
-electron/node_modules/
-# logs
-logs
-*.log
 
-# dotenv
+# ── Variables de entorno (contienen credenciales) ─────────
 .env
+**/.env
 
-# build
+# ── Build / distribución ──────────────────────────────────
 dist/
+**/dist/
 build/
+**/build/
+win-unpacked/
+**/win-unpacked/
+builder-debug.yml
+builder-effective-config.yaml
+**/*.blockmap
 
-# OS
+# ── Base de datos (archivos pesados/binarios) ─────────────
+database/
+
+# ── Logs ──────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── Sistema operativo ─────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# IDE
+# ── IDE ───────────────────────────────────────────────────
 .vscode/
 .idea/
+*.suo
+*.user
+
+# ── Claude Code (memoria y archivos internos) ─────────────
+.claude/
+**/.claude/

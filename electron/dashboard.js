@@ -579,6 +579,8 @@ async function mostrarModulo(tipo) {
 }
 async function tomarCaso() {
 
+    if (!analistaActual || analistaActual.orden != 1) return;
+
     const input = document.getElementById("numeroChat");
     const numero = input.value;
 

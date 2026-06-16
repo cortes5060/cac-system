@@ -7,7 +7,7 @@ const getCasos = async (req, res) => {
 
     const result = await connection.request()
       .query(`
-        SELECT TOP 5 a.nombre, c.numerochat, FORMAT(c.fecha, 'dd/MM/yyyy HH:mm') AS fecha, c.id
+        SELECT TOP 5 a.nombre, c.numerochat, c.fecha, c.id
         FROM casos3cx c
         JOIN analistas a ON c.idAnalista = a.id
         ORDER BY c.fecha DESC

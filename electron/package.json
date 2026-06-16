@@ -19,11 +19,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -46,7 +50,11 @@
     }
   },
   "devDependencies": {
+    "chart.js": "^4.5.1",
     "electron": "^40.6.1",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "tailwindcss": "^3.4.19"
   }
 }

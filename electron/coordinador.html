@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>Sistema CAC - Coordinador</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="vendor/tailwind.min.css">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
     .topnav { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
@@ -75,6 +75,10 @@
           class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
           🕐 Horarios
         </button>
+        <button onclick="activarTab('importar')" id="tab-importar"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          📥 Importar Excel
+        </button>
       </div>
 
       <!-- CONTENT -->
@@ -88,10 +92,10 @@
   </main>
 
   <script src="config.js"></script>
-  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
+  <script src="socket.io.min.js"></script>
   <script>
     function activarTab(tipo) {
-      ['analistas','orden','categorias','eds','horarios'].forEach(t => {
+      ['analistas','orden','categorias','eds','horarios','importar'].forEach(t => {
         document.getElementById('tab-' + t)?.classList.remove('active');
       });
       document.getElementById('tab-' + tipo)?.classList.add('active');

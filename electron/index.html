@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <title>CAC Insepet</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="vendor/tailwind.min.css">
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
     .bg-navy       { background-color: #122B4F; }
@@ -30,6 +30,11 @@
 </head>
 
 <body class="min-h-screen flex stripe-bg">
+
+  <!-- BANNER DESCONEXIÓN -->
+  <div id="banner-desconexion" style="display:none;position:fixed;top:0;left:0;right:0;z-index:100;background:#DC2626;color:white;text-align:center;padding:10px;font-size:13px;font-weight:600;align-items:center;justify-content:center;gap:8px">
+    ⚠ Sin conexión con el servidor — intentando reconectar...
+  </div>
 
   <!-- ===== LEFT BRANDING ===== -->
   <div class="hidden lg:flex flex-col justify-between w-5/12 p-14 text-white" style="background: linear-gradient(160deg,#0D1F3A 0%,#122B4F 60%,#1a3a6b 100%)">
@@ -139,7 +144,8 @@
   </div>
 
   <script src="config.js"></script>
-  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
+  <script src="socket.io.min.js"></script>
+  <script src="conexion.js"></script>
   <script>
     const socket = io(API);
 

@@ -20,6 +20,7 @@ builder-effective-config.yaml
 # ── Base de datos (solo archivos de datos de SQL Server) ───
 database/BD
 database/CAC
+database/*.zip
 
 # ── Logs ──────────────────────────────────────────────────
 logs/

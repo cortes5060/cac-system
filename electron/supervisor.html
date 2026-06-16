@@ -3,30 +3,140 @@
 <head>
   <meta charset="UTF-8">
   <title>Sistema CAC - Supervisor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="vendor/tailwind.min.css">
+  <script src="vendor/chart.min.js"></script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F1F4F9; }
     .topnav  { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
-    .card    { background: white; border-radius: 1.25rem; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
-    .kpi-card { background: white; border-radius: 1rem; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+    .card    { background: white; border-radius: 1.25rem; box-shadow: 0 1px 12px rgba(0,0,0,0.06); }
+    .kpi-card { background: white; border-radius: 1rem; box-shadow: 0 1px 10px rgba(0,0,0,0.06); }
     .fade-in { animation: fi 0.35s ease; }
     @keyframes fi { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
     .section-title {
-      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em;
-      text-transform: uppercase; color: #6B7280; margin-bottom: 1rem;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #9CA3AF; margin-bottom: 1rem;
     }
-    th { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    th { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
     td { font-size: 0.8rem; }
-    .badge-tipo { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 700; }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    .badge-tipo { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: #f1f5f9; }
     ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
     #sel-mes, #sel-anio { background-color: rgba(255,255,255,0.12); color: white; }
     #sel-mes option, #sel-anio option { background-color: #122B4F; color: white; }
+
+    /* Banner desconexion */
+    .banner-desconexion {
+      display: none; position: fixed; top: 60px; left: 0; right: 0; z-index: 50;
+      background: #C41E3A; color: white; text-align: center;
+      padding: 7px 16px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .banner-desconexion.visible { display: block; }
+
+    /* ── Secciones colapsables ─────────────────────────────── */
+    .sec-card {
+      background: white; border-radius: 1.25rem;
+      box-shadow: 0 1px 12px rgba(0,0,0,0.06);
+      overflow: hidden;
+    }
+    .sec-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 22px; cursor: pointer; user-select: none;
+      transition: background 0.15s;
+    }
+    .sec-header:hover { background: #F8FAFC; }
+    .sec-label {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .sec-accent { width: 3px; height: 18px; border-radius: 2px; flex-shrink: 0; }
+    .sec-title-text {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #374151;
+    }
+    .sec-badge {
+      font-size: 0.68rem; font-weight: 700; padding: 2px 8px;
+      border-radius: 999px; background: #F3F4F6; color: #6B7280;
+    }
+    .sec-chevron {
+      transition: transform 0.25s; color: #9CA3AF; flex-shrink: 0;
+    }
+    .sec-body { border-top: 1px solid #F3F4F6; }
+    .sec-card.collapsed .sec-chevron { transform: rotate(-90deg); }
+    .sec-card.collapsed .sec-body { display: none; }
+
+    /* ── Tablas con scroll ────────────────────────────────── */
+    .tabla-scroll {
+      max-height: 340px; overflow-y: auto; border-radius: 0.75rem;
+    }
+    .tabla-scroll table thead tr th {
+      position: sticky; top: 0; z-index: 5;
+    }
+
+    /* ── Buscable dropdown ───────────────────────────────── */
+    .buscable { position: relative; }
+    .buscable-list {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 200;
+      background: white; border: 1px solid #E5E7EB; border-radius: 10px;
+      max-height: 190px; overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+      display: none;
+    }
+    .buscable-list.open { display: block; }
+    .b-opt { padding: 7px 12px; cursor: pointer; font-size: 12.5px; color: #374151; }
+    .b-opt:hover { background: #EFF6FF; color: #1D4ED8; }
+    .b-empty { padding: 7px 12px; color: #9CA3AF; font-size: 12.5px; font-style: italic; }
+    .b-opt mark { background: #DBEAFE; color: #1D4ED8; border-radius: 2px; padding: 0 1px; }
+
+    /* ── Grupo tabs ──────────────────────────────────────── */
+    .grupo-tab {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 8px;
+      font-size: 11.5px; font-weight: 600; color: #6B7280;
+      border: 1px solid transparent; cursor: pointer; background: transparent;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .grupo-tab:hover { background: #F3F4F6; color: #1F2937; border-color: #E5E7EB; }
+    .grupo-tab.active { background: #122B4F; color: white; border-color: #122B4F; }
+
+    /* ── Filter inputs ───────────────────────────────────── */
+    .fil-select, .fil-input {
+      height: 34px; padding: 0 10px; font-size: 12.5px; color: #374151;
+      border: 1px solid #E5E7EB; border-radius: 8px; background: white;
+      outline: none; transition: border-color 0.15s;
+    }
+    .fil-select:focus, .fil-input:focus { border-color: #1565C0; }
+    .fil-input { width: 100%; }
+
+    /* ── Export menu ─────────────────────────────────────── */
+    .export-wrap { position: relative; display: inline-block; }
+    #export-menu {
+      display: none; position: absolute; right: 0; top: calc(100% + 4px);
+      background: white; border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+      border: 1px solid #E5E7EB; z-index: 200; min-width: 145px; overflow: hidden;
+    }
+    #export-menu.open { display: block; }
+    #export-menu button {
+      display: block; width: 100%; padding: 9px 15px; text-align: left;
+      font-size: 12.5px; font-weight: 500; border: none; background: none;
+      cursor: pointer; color: #374151;
+    }
+    #export-menu button:hover { background: #F3F4F6; }
+
+    /* ── Escalación: KPI mini cards ──────────────────────── */
+    .esc-kpi {
+      border-radius: 0.875rem; padding: 14px 16px;
+      border: 1px solid #E5E7EB;
+    }
   </style>
 </head>
 <body class="min-h-screen">
+
+  <!-- Banner desconexión -->
+  <div id="banner-desconexion" class="banner-desconexion">
+    ⚠️ Sin conexión con el servidor — las métricas pueden estar desactualizadas
+  </div>
 
   <!-- NAV -->
   <nav class="topnav px-8 py-4 flex justify-between items-center shadow-xl sticky top-0 z-30">
@@ -42,19 +152,16 @@
       </div>
     </div>
     <div class="flex items-center gap-5">
-      <!-- Period selector -->
       <div class="hidden sm:flex items-center gap-2">
         <select id="sel-mes" class="text-xs bg-white bg-opacity-10 text-white border border-white border-opacity-20 rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"></select>
         <select id="sel-anio" class="text-xs bg-white bg-opacity-10 text-white border border-white border-opacity-20 rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer"></select>
-        <button onclick="cargarDashboard()" id="btn-actualizar"
-          class="flex items-center gap-1.5 px-3 py-1.5 bg-white bg-opacity-15 hover:bg-opacity-25 text-white rounded-lg text-xs font-semibold transition border border-white border-opacity-20">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <span id="cargando" class="hidden text-xs text-blue-300 animate-pulse flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="animate-spin">
             <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
-          Actualizar
-        </button>
-        <span id="cargando" class="hidden text-xs text-blue-300 animate-pulse">Cargando…</span>
+          Actualizando…
+        </span>
       </div>
       <div class="text-right hidden sm:block">
         <div class="text-blue-300 text-xs font-semibold tracking-widest uppercase">Supervisor</div>
@@ -72,84 +179,265 @@
   </nav>
 
   <!-- MAIN -->
-  <main class="max-w-7xl mx-auto px-6 py-7 space-y-6 fade-in">
+  <main class="max-w-7xl mx-auto px-6 py-6 space-y-4 fade-in">
 
-    <!-- KPIs -->
-    <div class="grid grid-cols-2 xl:grid-cols-5 gap-4" id="kpi-row">
-      <!-- filled by JS -->
-    </div>
-
-    <!-- Charts row 1: Tickets/Analista + Top Categorías -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="card p-6">
-        <p class="section-title">Tickets por Analista · Este Mes</p>
-        <div style="position:relative;height:280px"><canvas id="chart-analistas"></canvas></div>
+    <!-- ── FILTROS ──────────────────────────────────────────── -->
+    <div class="card p-4">
+      <!-- Grupos -->
+      <div class="flex items-center gap-1 flex-wrap mb-3 pb-3 border-b border-gray-100">
+        <span class="text-xs font-bold text-gray-400 uppercase tracking-widest mr-1">Grupo:</span>
+        <div id="grupo-nav-tabs" class="flex items-center gap-1 flex-wrap"></div>
       </div>
-      <div class="card p-6">
-        <p class="section-title">Top 10 Categorías Más Frecuentes</p>
-        <div style="position:relative;height:280px"><canvas id="chart-categorias"></canvas></div>
-      </div>
-    </div>
-
-    <!-- Chart row 2: Tickets por Día (full width) -->
-    <div class="card p-6">
-      <p class="section-title">Tickets por Día del Mes</p>
-      <div style="position:relative;height:200px"><canvas id="chart-dias"></canvas></div>
-    </div>
-
-    <!-- Charts row 3: Donut + Tiempo/Analista -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="card p-6">
-        <p class="section-title">Distribución por Tipo de Caso</p>
-        <div style="position:relative;height:240px"><canvas id="chart-tipos"></canvas></div>
-      </div>
-      <div class="card p-6">
-        <p class="section-title">Tiempo Promedio de Atención por Analista</p>
-        <div style="position:relative;height:240px"><canvas id="chart-tiempo-analista"></canvas></div>
-      </div>
-    </div>
-
-    <!-- Heatmap EDS × Categoría -->
-    <div class="card p-6">
-      <div class="flex items-center justify-between mb-4">
-        <p class="section-title mb-0">Mapa de Calor · EDS × Categoría</p>
-        <div class="flex items-center gap-2 text-xs text-gray-400">
-          <span>Bajo</span>
-          <div class="flex gap-0.5">
-            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.12)"></div>
-            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.30)"></div>
-            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.55)"></div>
-            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,0.78)"></div>
-            <div class="w-4 h-4 rounded" style="background:rgba(196,30,58,1.00)"></div>
+      <!-- Filtros + export -->
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex items-center gap-2">
+          <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Responsable</label>
+          <select id="fil-analista" class="fil-select" style="min-width:150px">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">EDS</label>
+          <div class="buscable" style="min-width:170px">
+            <div class="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden" style="height:34px">
+              <input id="fil-eds-input" type="text" placeholder="Buscar EDS…" class="fil-input border-0 rounded-none" style="height:100%">
+              <button id="fil-eds-clear" onclick="buscEDS&&buscEDS.clear();cargarDashboard()" title="Limpiar"
+                class="px-2 text-gray-400 hover:text-gray-600 text-xs flex-shrink-0" style="display:none">✕</button>
+            </div>
+            <div id="fil-eds-list" class="buscable-list"></div>
           </div>
-          <span>Alto</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Categoría</label>
+          <div class="buscable" style="min-width:170px">
+            <div class="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden" style="height:34px">
+              <input id="fil-cat-input" type="text" placeholder="Buscar categoría…" class="fil-input border-0 rounded-none" style="height:100%">
+              <button id="fil-cat-clear" onclick="buscCat&&buscCat.clear();cargarDashboard()" title="Limpiar"
+                class="px-2 text-gray-400 hover:text-gray-600 text-xs flex-shrink-0" style="display:none">✕</button>
+            </div>
+            <div id="fil-cat-list" class="buscable-list"></div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 ml-auto">
+          <div id="filtros-activos" class="hidden flex items-center gap-1.5">
+            <span class="text-xs bg-blue-50 text-blue-600 font-semibold px-2.5 py-1 rounded-full border border-blue-100">Filtros activos</span>
+            <button onclick="limpiarFiltros()" class="text-xs text-gray-400 hover:text-red-500 transition">Limpiar</button>
+          </div>
+          <div class="export-wrap">
+            <button id="btn-exportar" onclick="toggleExportMenu()"
+              class="flex items-center gap-1.5 px-3 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-xs font-semibold transition">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Exportar
+              <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+            <div id="export-menu">
+              <button onclick="exportarReporte('jpg')">🖼 Imagen JPG</button>
+              <button onclick="exportarReporte('pdf')">📄 PDF</button>
+            </div>
+          </div>
         </div>
       </div>
-      <div id="heatmap-eds"></div>
     </div>
 
-    <!-- Tabla: Últimos 10 tickets -->
-    <div class="card p-6">
-      <p class="section-title">Últimos 10 Tickets Registrados</p>
-      <div class="overflow-x-auto" id="tabla-ultimos"></div>
-    </div>
+    <!-- ── KPIs (siempre visibles) ──────────────────────────── -->
+    <div class="grid grid-cols-2 xl:grid-cols-5 gap-3" id="kpi-row"></div>
 
-    <!-- Tablas: Ranking EDS + Categorías Tiempo -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10">
-      <div class="card p-6">
-        <p class="section-title">Ranking EDS con Más Incidencias</p>
-        <div id="tabla-eds"></div>
+    <!-- ── TOP 5 ─────────────────────────────────────────────── -->
+    <div class="sec-card" id="sec-top5">
+      <div class="sec-header" onclick="toggleSec('sec-top5')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#6A1B9A"></div>
+          <span class="sec-title-text">Top 5 Categorías y EDS</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
       </div>
-      <div class="card p-6">
-        <p class="section-title">Categorías con Mayor Tiempo Promedio</p>
-        <div id="tabla-cat-tiempo"></div>
+      <div class="sec-body p-5">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="top5-row"></div>
+      </div>
+    </div>
+
+    <!-- ── ACTIVIDAD ──────────────────────────────────────────── -->
+    <div class="sec-card" id="sec-actividad">
+      <div class="sec-header" onclick="toggleSec('sec-actividad')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#1565C0"></div>
+          <span class="sec-title-text">Actividad por Responsable</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-5 space-y-5">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <p class="section-title">Tickets por Responsable</p>
+            <div style="position:relative;height:260px"><canvas id="chart-analistas"></canvas></div>
+          </div>
+          <div>
+            <p class="section-title">Top 10 Categorías</p>
+            <div style="position:relative;height:260px"><canvas id="chart-categorias"></canvas></div>
+          </div>
+        </div>
+        <div>
+          <p class="section-title">Tickets por Día del Mes</p>
+          <div style="position:relative;height:180px"><canvas id="chart-dias"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DISTRIBUCIÓN ───────────────────────────────────────── -->
+    <div class="sec-card" id="sec-dist">
+      <div class="sec-header" onclick="toggleSec('sec-dist')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#C41E3A"></div>
+          <span class="sec-title-text">Distribución de Tickets</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-5">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div>
+            <p class="section-title">Por Tipo de Caso</p>
+            <div style="position:relative;height:260px"><canvas id="chart-tipos"></canvas></div>
+          </div>
+          <div>
+            <p class="section-title">Por Estatus</p>
+            <div style="position:relative;height:260px"><canvas id="chart-estatus"></canvas></div>
+          </div>
+          <div>
+            <p class="section-title">Por Prioridad</p>
+            <div style="position:relative;height:260px"><canvas id="chart-prioridad"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── MAPA DE CALOR ──────────────────────────────────────── -->
+    <div class="sec-card" id="sec-heatmap">
+      <div class="sec-header" onclick="toggleSec('sec-heatmap')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#E65100"></div>
+          <span class="sec-title-text">Mapa de Calor · EDS × Categoría</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <div class="hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
+            <span>Bajo</span>
+            <div class="flex gap-0.5">
+              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.15)"></div>
+              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.38)"></div>
+              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.62)"></div>
+              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.85)"></div>
+              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,1.00)"></div>
+            </div>
+            <span>Alto</span>
+          </div>
+          <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      </div>
+      <div class="sec-body p-5">
+        <div id="heatmap-eds"></div>
+      </div>
+    </div>
+
+    <!-- ── HISTORIAL DE TICKETS ───────────────────────────────── -->
+    <div class="sec-card" id="sec-historial">
+      <div class="sec-header" onclick="toggleSec('sec-historial')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#0891B2"></div>
+          <span class="sec-title-text">Historial de Tickets</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-5 space-y-5">
+        <div>
+          <p class="section-title">Últimos 10 Tickets Registrados</p>
+          <div class="tabla-scroll">
+            <div id="tabla-ultimos"></div>
+          </div>
+        </div>
+        <div>
+          <p class="section-title">Ranking EDS con Más Incidencias</p>
+          <div class="tabla-scroll">
+            <div id="tabla-eds"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ESCALACIÓN ─────────────────────────────────────────── -->
+    <div class="sec-card" id="sec-escalacion">
+      <div class="sec-header" onclick="toggleSec('sec-escalacion')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#7C3AED"></div>
+          <span class="sec-title-text">Escalación de Tickets</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-5 space-y-5">
+
+        <!-- KPIs escalación -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="kpi-escalacion"></div>
+
+        <!-- Charts escalación -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <p class="section-title">Analistas que más reciben escalaciones</p>
+            <div style="position:relative;height:220px"><canvas id="chart-esc-reciben"></canvas></div>
+          </div>
+          <div>
+            <p class="section-title">Analistas que más escalan</p>
+            <div style="position:relative;height:220px"><canvas id="chart-esc-envian"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Alta prioridad -->
+        <div>
+          <p class="section-title">Top 10 Tickets de Alta Prioridad Activos</p>
+          <div class="tabla-scroll">
+            <div id="tabla-alta-prioridad"></div>
+          </div>
+        </div>
+
+        <!-- Escalados activos -->
+        <div>
+          <p class="section-title">Tickets Escalados Activos (Top 20)</p>
+          <div class="tabla-scroll">
+            <div id="tabla-escalados-activos"></div>
+          </div>
+        </div>
+
       </div>
     </div>
 
   </main>
 
   <script src="config.js"></script>
-  <script>document.write('<scr'+'ipt src="'+API+'/socket.io/socket.io.js"><\/scr'+'ipt>')</script>
+  <script src="socket.io.min.js"></script>
+  <script>
+    try { var socket = io(API); } catch(e) { console.warn('Socket no disponible:', e); }
+
+    function toggleSec(id) {
+      document.getElementById(id)?.classList.toggle('collapsed');
+    }
+  </script>
+  <script src="conexion.js"></script>
+  <script src="vendor/html2canvas.min.js"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
   <script src="supervisor.js"></script>
 </body>
 </html>

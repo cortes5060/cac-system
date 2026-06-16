@@ -77,7 +77,6 @@ const cambiarEstado = async (req, res) => {
 
     if (activo == 1) {
 
-      // Verificar si el analista ya tomó algún caso hoy
       const casosHoyResult = await connection.request()
         .input("id", sql.Int, id)
         .query(`
@@ -90,7 +89,6 @@ const cambiarEstado = async (req, res) => {
       const casosHoy = casosHoyResult.recordset[0].casos;
 
       if (casosHoy === 0) {
-        // Sin casos hoy: debe quedar antes de quienes ya tomaron casos
         const primerConCasosResult = await connection.request()
           .query(`
             SELECT ISNULL(MIN(a.orden), 0) AS primerConCasos
@@ -106,7 +104,6 @@ const cambiarEstado = async (req, res) => {
         const primerConCasos = primerConCasosResult.recordset[0].primerConCasos;
 
         if (primerConCasos > 0) {
-          // Hay analistas con casos hoy: desplazarlos para insertar antes de ellos
           await connection.request()
             .input("desde", sql.Int, primerConCasos)
             .query(`
@@ -124,7 +121,6 @@ const cambiarEstado = async (req, res) => {
               WHERE id = @id
             `);
         } else {
-          // Nadie ha tomado casos hoy: ir al final de la cola (orden normal)
           const maxOrdenResult = await connection.request()
             .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
 
@@ -138,7 +134,6 @@ const cambiarEstado = async (req, res) => {
             `);
         }
       } else {
-        // Ya tomó casos hoy: va al final de la cola
         const maxOrdenResult = await connection.request()
           .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
 

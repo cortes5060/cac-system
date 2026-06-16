@@ -30,6 +30,9 @@ const crearTicket = async (req, res) => {
            @idAnalista, GETDATE(), @tiempoAtencionMin, @versiones, @observaciones, @fechaCaso)
       `);
 
+    const io = req.app.get('io');
+    io.emit('ticketsActualizados');
+
     res.json({ ok: true });
   } catch (error) {
     console.error('Error creando ticket:', error);

@@ -522,9 +522,9 @@ async function mostrarModulo(tipo) {
                         </div>
 
                         <div class="flex items-center gap-4 pt-1">
-                            <button onclick="guardarTicket()"
-                                class="flex-1 py-3 text-white rounded-xl font-semibold text-sm transition hover:opacity-90"
-                                style="background: linear-gradient(135deg, #122B4F, #1565C0)">
+                            <button disabled
+                                class="flex-1 py-3 rounded-xl font-semibold text-sm cursor-not-allowed"
+                                style="background:#E5E7EB;color:#9CA3AF" title="Registro de tickets deshabilitado temporalmente">
                                 Guardar Ticket
                             </button>
                             <span id="tk_mensaje" class="text-sm font-medium"></span>

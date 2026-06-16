@@ -27,6 +27,7 @@ async function mostrarSeccion(tipo) {
     else if (tipo === 'categorias') await seccionCategorias(c);
     else if (tipo === 'eds')      await seccionEDS(c);
     else if (tipo === 'horarios') await seccionHorarios(c);
+    else if (tipo === 'importar') await seccionImportar(c);
 }
 
 // ─── Helpers ──────────────────────────────────────────────
@@ -550,6 +551,274 @@ async function seccionHorarios(c) {
                 </div>
             </div>`;
     } catch { errorHtml(c); }
+}
+
+// ─── IMPORTAR EXCEL ──────────────────────────────────────────
+
+let _importPreview = null;
+
+async function seccionImportar(c) {
+    c.innerHTML = `
+        <div class="fade-in">
+            ${seccionHeader('Importar desde Excel', '#1B5E20')}
+
+            <div class="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-5 max-w-xl">
+                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Seleccionar archivo</p>
+                <div class="flex gap-3 items-center flex-wrap">
+                    <label class="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-semibold text-sm cursor-pointer hover:opacity-90 transition btn-navy">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        Seleccionar archivo
+                        <input type="file" id="imp_archivo" accept=".xlsx,.xls" class="hidden"
+                            onchange="onArchivoSeleccionado(this)"/>
+                    </label>
+                    <span id="imp_nombre" class="text-sm text-gray-400 italic">Ningún archivo seleccionado</span>
+                </div>
+                <div class="mt-4">
+                    <button id="imp_btn_preview" onclick="previsualizarExcel()" disabled
+                        class="px-6 py-2.5 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition btn-navy disabled:opacity-40 disabled:cursor-not-allowed">
+                        Previsualizar
+                    </button>
+                </div>
+                <span id="imp_msg" class="block text-sm font-medium mt-2"></span>
+            </div>
+
+            <div id="imp_resultados"></div>
+        </div>`;
+    _importPreview = null;
+}
+
+function onArchivoSeleccionado(input) {
+    const nombre = document.getElementById('imp_nombre');
+    const btn    = document.getElementById('imp_btn_preview');
+    const res    = document.getElementById('imp_resultados');
+    if (input.files[0]) {
+        nombre.textContent = input.files[0].name;
+        nombre.className   = 'text-sm text-gray-700 font-medium';
+        btn.disabled = false;
+    } else {
+        nombre.textContent = 'Ningún archivo seleccionado';
+        nombre.className   = 'text-sm text-gray-400 italic';
+        btn.disabled = true;
+    }
+    _importPreview = null;
+    if (res) res.innerHTML = '';
+}
+
+async function previsualizarExcel() {
+    const input   = document.getElementById('imp_archivo');
+    const msg     = document.getElementById('imp_msg');
+    const resDiv  = document.getElementById('imp_resultados');
+    const btn     = document.getElementById('imp_btn_preview');
+    if (!input?.files[0]) return;
+
+    btn.textContent = 'Analizando...';
+    btn.disabled    = true;
+    msg.textContent = '';
+    resDiv.innerHTML = '';
+
+    const form = new FormData();
+    form.append('archivo', input.files[0]);
+
+    try {
+        const res  = await fetch(`${API}/api/importar/preview`, { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error en el servidor');
+
+        _importPreview = data;
+        renderPreviewImport(resDiv, data);
+        msg.textContent = '';
+    } catch (e) {
+        msg.textContent = `✗ ${e.message}`;
+        msg.className   = 'block text-sm font-medium mt-2 text-red-500';
+    } finally {
+        btn.textContent = 'Previsualizar';
+        btn.disabled    = false;
+    }
+}
+
+function renderPreviewImport(div, data) {
+    const { total, insertar, actualizar, omitir, advertencias, edsNuevas = 0, filas } = data;
+    const acOK   = filas.filter(f => f.accion !== 'omitir' && f.estado === 'ok').length;
+    const acTodo = filas.filter(f => f.accion !== 'omitir').length;
+
+    const warns = filas.filter(f => f.estado === 'advertencia' && f.accion !== 'omitir');
+    const warnHtml = warns.length ? `
+        <div class="mt-4 bg-yellow-50 border border-yellow-200 rounded-xl p-4 max-w-2xl">
+            <p class="text-xs font-bold text-yellow-700 uppercase tracking-widest mb-2">
+                Advertencias — ${warns.length} fila${warns.length !== 1 ? 's' : ''}
+            </p>
+            <ul class="space-y-0.5">
+                ${warns.map(f => f.errores.map(e =>
+                    `<li class="text-xs text-yellow-700">• Fila ${f.fila}: ${e}</li>`
+                ).join('')).join('')}
+            </ul>
+        </div>` : '';
+
+    const btnOK = acOK > 0 ? `
+        <button onclick="confirmarImportacion(false)"
+            class="px-6 py-2.5 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition btn-green">
+            ✓ Importar OK (${acOK})
+        </button>` : '';
+
+    const btnTodo = advertencias > 0 ? `
+        <button onclick="confirmarImportacion(true)"
+            class="px-6 py-2.5 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition"
+            style="background:#92400E">
+            ⚠ Importar todo, incluir advertencias (${acTodo})
+        </button>` : '';
+
+    const esc = s => (s || '').toString().replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    div.innerHTML = `
+        <div class="fade-in">
+            <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-5 max-w-4xl">
+                <div class="bg-white border border-gray-200 rounded-xl px-3 py-3 text-center">
+                    <div class="text-2xl font-black text-gray-700">${total}</div>
+                    <div class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Total</div>
+                </div>
+                <div class="bg-green-50 border border-green-200 rounded-xl px-3 py-3 text-center">
+                    <div class="text-2xl font-black text-green-700">${insertar}</div>
+                    <div class="text-xs text-green-600 uppercase tracking-wide mt-0.5">Nuevos</div>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-xl px-3 py-3 text-center">
+                    <div class="text-2xl font-black text-blue-700">${actualizar}</div>
+                    <div class="text-xs text-blue-600 uppercase tracking-wide mt-0.5">Actualizar</div>
+                </div>
+                <div class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-center">
+                    <div class="text-2xl font-black text-gray-400">${omitir}</div>
+                    <div class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Sin cambios</div>
+                </div>
+                <div class="bg-orange-50 border border-orange-200 rounded-xl px-3 py-3 text-center">
+                    <div class="text-2xl font-black text-orange-600">${edsNuevas}</div>
+                    <div class="text-xs text-orange-600 uppercase tracking-wide mt-0.5">EDS nuevas</div>
+                </div>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-3 text-center">
+                    <div class="text-2xl font-black text-yellow-600">${advertencias}</div>
+                    <div class="text-xs text-yellow-600 uppercase tracking-wide mt-0.5">Advertencias</div>
+                </div>
+            </div>
+
+            ${acTodo === 0 ? `
+                <div class="text-center py-8 text-gray-400 text-sm">No hay filas para importar o actualizar.</div>
+            ` : `
+                <div class="flex gap-3 mb-4 flex-wrap">
+                    ${btnOK}
+                    ${btnTodo}
+                </div>
+            `}
+            <span id="imp_confirm_msg" class="block text-sm font-medium mb-4"></span>
+            ${warnHtml}
+
+            <div class="overflow-x-auto rounded-xl border border-gray-200 mt-4">
+                <table class="min-w-full text-xs">
+                    <thead>
+                        <tr style="background:#122B4F">
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Fila</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Acción</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Código</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Título</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">EDS</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Creador</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Escalado a</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Estatus</th>
+                            <th class="px-3 py-2.5 text-left text-blue-200 font-bold uppercase tracking-wide">Campos modificados</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-100">
+                        ${filas.slice(0, 50).map(f => {
+                            let badge;
+                            if (f.accion === 'omitir') {
+                                badge = '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-bold text-xs">= IGUAL</span>';
+                            } else if (f.accion === 'actualizar' && f.estado === 'ok') {
+                                badge = '<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold text-xs">ACTUALIZAR</span>';
+                            } else if (f.accion === 'insertar' && f.estado === 'ok') {
+                                badge = '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold text-xs">NUEVO</span>';
+                            } else {
+                                const label = f.accion === 'actualizar' ? 'ACT ⚠' : 'NUEVO ⚠';
+                                badge = `<span class="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-bold text-xs">${label}</span>`;
+                            }
+                            const cambios = f.camposModificados?.length
+                                ? `<span class="text-blue-600">${f.camposModificados.join(', ')}</span>`
+                                : '—';
+                            return `
+                            <tr class="hover:bg-gray-50 ${f.accion === 'omitir' ? 'opacity-40' : ''}">
+                                <td class="px-3 py-2 text-gray-400">${f.fila}</td>
+                                <td class="px-3 py-2">${badge}</td>
+                                <td class="px-3 py-2 font-mono text-gray-500">${esc(f.codigo2wd) || '—'}</td>
+                                <td class="px-3 py-2 text-gray-800 max-w-[160px] truncate" title="${esc(f.casoAtendido)}">${esc(f.casoAtendido) || '—'}</td>
+                                <td class="px-3 py-2">
+                                    ${f.edsEncontrada
+                                        ? `<span class="text-gray-700">${esc(f.eds)}</span>`
+                                        : f.edsNueva
+                                            ? `<span class="text-gray-700">${esc(f.eds)}</span> <span class="px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-bold text-xs ml-1">NUEVA</span>`
+                                            : `<span class="text-gray-400">—</span>`
+                                    }
+                                </td>
+                                <td class="px-3 py-2 ${f.idAnalista ? 'text-gray-700' : (f.creadoPorNom ? 'text-red-500' : 'text-gray-400')}">${esc(f.creadoPorNom) || '—'}</td>
+                                <td class="px-3 py-2 ${f.escalado && f.escalado !== f.idAnalista ? 'text-purple-700 font-semibold' : 'text-gray-600'}">${esc(f.responsableNom) || '—'}</td>
+                                <td class="px-3 py-2 ${f.idEstatus ? 'text-gray-700' : 'text-gray-400'}">${esc(f.estatusNom) || '—'}</td>
+                                <td class="px-3 py-2">${cambios}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+                ${filas.length > 50 ? `
+                    <div class="px-4 py-2 text-xs text-gray-400 text-center bg-gray-50 border-t border-gray-100">
+                        Mostrando 50 de ${filas.length} filas
+                    </div>` : ''}
+            </div>
+        </div>`;
+}
+
+async function confirmarImportacion(incluirAdvertencias) {
+    if (!_importPreview) return;
+    const msg = document.getElementById('imp_confirm_msg');
+    if (!msg) return;
+
+    msg.textContent = 'Importando...';
+    msg.className   = 'block text-sm font-medium mb-4 text-blue-600';
+
+    try {
+        const res  = await fetch(`${API}/api/importar/confirmar`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ filas: _importPreview.filas, incluirAdvertencias })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error desconocido');
+
+        const partes = [];
+        if (data.edsCreadas      > 0) partes.push(`${data.edsCreadas} EDS creada${data.edsCreadas !== 1 ? 's' : ''}`);
+        if (data.analistasCreados > 0) partes.push(`${data.analistasCreados} analista${data.analistasCreados !== 1 ? 's' : ''} creado${data.analistasCreados !== 1 ? 's' : ''}`);
+        if (data.insertados      > 0) partes.push(`${data.insertados} ticket${data.insertados !== 1 ? 's' : ''} insertado${data.insertados !== 1 ? 's' : ''}`);
+        if (data.actualizados    > 0) partes.push(`${data.actualizados} actualizado${data.actualizados !== 1 ? 's' : ''}`);
+        let texto = partes.length ? `✓ ${partes.join(', ')}.` : '✓ Sin cambios.';
+        if (data.errores?.length) texto += ` ${data.errores.length} con error.`;
+
+        msg.textContent = texto;
+        msg.className   = partes.length
+          ? 'block text-sm font-medium mb-2 text-green-600'
+          : 'block text-sm font-medium mb-2 text-orange-600';
+
+        // Mostrar detalle de errores
+        if (data.errores?.length) {
+          const detalle = document.createElement('div');
+          detalle.className = 'bg-red-50 border border-red-200 rounded-xl p-3 mb-4 max-w-2xl';
+          detalle.innerHTML = `<p class="text-xs font-bold text-red-700 uppercase tracking-wide mb-1">Detalle de errores</p>
+            <ul class="space-y-0.5">${data.errores.slice(0,10).map(e =>
+              `<li class="text-xs text-red-600">• ${e.replace(/</g,'&lt;')}</li>`
+            ).join('')}${data.errores.length > 10 ? `<li class="text-xs text-gray-400">… y ${data.errores.length - 10} más</li>` : ''}</ul>`;
+          msg.insertAdjacentElement('afterend', detalle);
+        }
+
+        if (partes.length) _importPreview = null;
+    } catch (e) {
+        msg.textContent = `✗ ${e.message}`;
+        msg.className   = 'block text-sm font-medium mb-4 text-red-500';
+    }
 }
 
 async function guardarHorario(analistaId) {

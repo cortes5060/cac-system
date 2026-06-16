@@ -33,4 +33,24 @@ const getTiposCaso = async (req, res) => {
   }
 };
 
-module.exports = { getEstaciones, getCategorias, getTiposCaso };
+const getAnalistas = async (req, res) => {
+  try {
+    const result = await (await pool).request()
+      .query(`SELECT id, nombre FROM analistas WHERE idRol = 1 ORDER BY nombre`);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const getGrupos = async (req, res) => {
+  try {
+    const result = await (await pool).request()
+      .query(`SELECT id, nombre FROM gruposColaborador ORDER BY nombre`);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { getEstaciones, getCategorias, getTiposCaso, getAnalistas, getGrupos };

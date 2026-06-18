@@ -40,7 +40,7 @@ function periodoWhere(p, alias = '') {
 function filtroWhere(f, alias = '') {
   const pre = alias ? alias + '.' : '';
   let w = '';
-  if (f.idAnalista)         w += ` AND ${pre}escalado = @fAna`;
+  if (f.idAnalista)         w += ` AND ISNULL(${pre}escalado, ${pre}idAnalista) = @fAna`;
   if (f.eds)                w += ` AND ${pre}EDS = @fEDS`;
   if (f.categoriaPrincipal) w += ` AND EXISTS (SELECT 1 FROM categorias _c WHERE _c.id = ${pre}idCategoria AND _c.categoriaprincipal = @fCatP)`;
   if (f.idCategoria)        w += ` AND ${pre}idCategoria = @fCat`;
@@ -89,7 +89,7 @@ const getKPIs = async (req, res) => {
         GROUP BY EDS ORDER BY total DESC`),
       mkReq(db,p,f).query(`
         SELECT TOP 1 a.nombre, COUNT(t.id) AS total
-        FROM analistas a JOIN tickets t ON a.id=t.escalado
+        FROM analistas a JOIN tickets t ON a.id=ISNULL(t.escalado,t.idAnalista)
         WHERE ${pwt}${fwt} GROUP BY a.id,a.nombre ORDER BY total DESC`),
     ]);
 
@@ -116,7 +116,7 @@ const getTicketsPorAnalista = async (req, res) => {
     const result = await r.query(`
       SELECT a.nombre, COUNT(t.id) AS tickets
       FROM tickets t
-      JOIN analistas a ON a.id = t.escalado
+      JOIN analistas a ON a.id = ISNULL(t.escalado, t.idAnalista)
       WHERE ${pw}${fw} AND a.idRol = 1${f.idAnalista ? ' AND a.id = @fAna' : ''}
       GROUP BY a.id, a.nombre ORDER BY tickets DESC
     `);
@@ -222,7 +222,7 @@ const getUltimosTickets = async (req, res) => {
         ISNULL(pr.nombre, '—') AS prioridad,
         FORMAT(t.fechaHora, 'dd/MM/yyyy HH:mm') AS fechaRegistro
       FROM tickets t
-      LEFT JOIN analistas a  ON t.escalado    = a.id
+      LEFT JOIN analistas a  ON ISNULL(t.escalado, t.idAnalista) = a.id
       LEFT JOIN categorias c ON t.idCategoria = c.id
       LEFT JOIN tiposCaso tc ON t.idTipoCaso  = tc.id
       LEFT JOIN estatus   e  ON t.idEstatus   = e.id

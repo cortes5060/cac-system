@@ -17,6 +17,7 @@ const crearTicket = async (req, res) => {
       .input('origenFalla',      sql.NVarChar, origenFalla      || null)
       .input('solucion',         sql.NVarChar, solucion         || null)
       .input('idAnalista',       sql.Int,      idAnalista)
+      .input('escalado',         sql.Int,      idAnalista)
       .input('tiempoAtencionMin',sql.Int,      tiempoAtencionMin|| null)
       .input('versiones',        sql.NVarChar, versiones        || null)
       .input('observaciones',    sql.NVarChar, observaciones    || null)
@@ -24,10 +25,10 @@ const crearTicket = async (req, res) => {
       .query(`
         INSERT INTO tickets
           (casoAtendido, EDS, idTipoCaso, idCategoria, origenFalla, solucion,
-           idAnalista, fechaHora, tiempoAtencionMin, versiones, observaciones, fechaCaso)
+           idAnalista, escalado, fechaHora, tiempoAtencionMin, versiones, observaciones, fechaCaso)
         VALUES
           (@casoAtendido, @EDS, @idTipoCaso, @idCategoria, @origenFalla, @solucion,
-           @idAnalista, GETDATE(), @tiempoAtencionMin, @versiones, @observaciones, @fechaCaso)
+           @idAnalista, @escalado, GETDATE(), @tiempoAtencionMin, @versiones, @observaciones, @fechaCaso)
       `);
 
     const io = req.app.get('io');

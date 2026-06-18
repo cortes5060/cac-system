@@ -339,7 +339,7 @@ const confirmarImport = async (req, res) => {
       try {
         if (f.accion === 'insertar') {
           const idAna = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
-          const idEsc = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? null;
+          const idEsc = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? idAna;
           await db.request()
             .input('casoAtendido',        sql.NVarChar, f.casoAtendido       || null)
             .input('EDS',                 sql.NVarChar, f.eds                || null)
@@ -375,7 +375,7 @@ const confirmarImport = async (req, res) => {
 
         } else if (f.accion === 'actualizar' && f.codigo2wd) {
           const idAna = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
-          const idEsc = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? null;
+          const idEsc = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? idAna;
           const sets = [];
           const r = db.request().input('codigo', sql.NVarChar, f.codigo2wd);
 

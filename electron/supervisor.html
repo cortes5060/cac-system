@@ -259,6 +259,22 @@
     <!-- ── KPIs (siempre visibles) ──────────────────────────── -->
     <div class="grid grid-cols-2 xl:grid-cols-5 gap-3" id="kpi-row"></div>
 
+    <!-- ── COMPARACIÓN PERÍODO ANTERIOR ─────────────────────── -->
+    <div class="sec-card" id="sec-comparacion">
+      <div class="sec-header" onclick="toggleSec('sec-comparacion')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#059669"></div>
+          <span class="sec-title-text">Comparación con Período Anterior</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-6">
+        <div id="comparacion-cards" class="grid grid-cols-1 lg:grid-cols-3 gap-4"></div>
+      </div>
+    </div>
+
     <!-- ── TOP 5 ─────────────────────────────────────────────── -->
     <div class="sec-card" id="sec-top5">
       <div class="sec-header" onclick="toggleSec('sec-top5')">
@@ -301,6 +317,17 @@
           <p class="section-title">Tickets por Día del Mes</p>
           <div style="position:relative;height:180px"><canvas id="chart-dias"></canvas></div>
         </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 pt-2">
+          <div>
+            <p class="section-title">Día de la Semana más Activo</p>
+            <div style="position:relative;height:200px"><canvas id="chart-dia-semana"></canvas></div>
+          </div>
+          <div>
+            <p class="section-title">Tasa de Resolución por Analista</p>
+            <p class="text-xs text-gray-400 -mt-3 mb-3">Tickets cerrados / asignados en el período (mín. 3 tickets)</p>
+            <div style="position:relative;height:200px"><canvas id="chart-tasa-resolucion"></canvas></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -333,6 +360,24 @@
       </div>
     </div>
 
+    <!-- ── CARGA ACTUAL EN TIEMPO REAL ──────────────────────────── -->
+    <div class="sec-card" id="sec-carga">
+      <div class="sec-header" onclick="toggleSec('sec-carga')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#C41E3A"></div>
+          <span class="sec-title-text">Carga Actual por Analista</span>
+          <span class="sec-badge" id="badge-carga">Tiempo real</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-6">
+        <p class="text-xs text-gray-400 mb-4">Tickets activos <strong>ahora mismo</strong> (no cerrados ni cancelados), independiente del período seleccionado.</p>
+        <div id="carga-grid" class="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
+      </div>
+    </div>
+
     <!-- ── RANKING EDS ──────────────────────────────────────────── -->
     <div class="sec-card" id="sec-historial">
       <div class="sec-header" onclick="toggleSec('sec-historial')">
@@ -352,6 +397,26 @@
       </div>
     </div>
 
+    <!-- ── REINCIDENCIA POR EDS ─────────────────────────────────── -->
+    <div class="sec-card" id="sec-reincidencia">
+      <div class="sec-header" onclick="toggleSec('sec-reincidencia')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#D97706"></div>
+          <span class="sec-title-text">Reincidencia por EDS</span>
+          <span id="badge-reincidencia" class="sec-badge">—</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-6">
+        <p class="text-xs text-gray-400 mb-4">Estaciones con el mismo tipo de problema registrado <strong>3 o más veces</strong> en el período. Indica fallas recurrentes sin resolver.</p>
+        <div class="tabla-scroll" style="max-height:380px">
+          <div id="tabla-reincidencia"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── ESCALACIÓN ─────────────────────────────────────────── -->
     <div class="sec-card" id="sec-escalacion">
       <div class="sec-header" onclick="toggleSec('sec-escalacion')">
@@ -363,12 +428,21 @@
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </div>
-      <div class="sec-body p-5 space-y-5">
+      <div class="sec-body p-6 space-y-6">
 
-        <!-- KPIs escalación -->
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="kpi-escalacion"></div>
+        <!-- Fila 1: Categorías escaladas + KPI resumen -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <p class="section-title">Categorías que Más se Escalan</p>
+            <div style="position:relative;height:250px"><canvas id="chart-cat-escaladas"></canvas></div>
+          </div>
+          <div>
+            <p class="section-title">Resumen de Escalación</p>
+            <div class="grid grid-cols-2 gap-3" id="kpi-escalacion"></div>
+          </div>
+        </div>
 
-        <!-- Charts escalación -->
+        <!-- Fila 2: Quién recibe / quién envía -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <div>
             <p class="section-title">Analistas que más reciben escalaciones</p>
@@ -383,7 +457,7 @@
         <!-- Alta prioridad -->
         <div>
           <div class="flex items-center justify-between mb-3">
-            <p class="section-title mb-0">Tickets de Alta Prioridad Activos · más antiguos primero</p>
+            <p class="section-title mb-0">Tickets de Alta Prioridad Activos</p>
             <span id="badge-alta-prio" class="sec-badge"></span>
           </div>
           <div class="tabla-scroll" style="max-height:420px">
@@ -394,7 +468,7 @@
         <!-- Escalados activos -->
         <div>
           <div class="flex items-center justify-between mb-3">
-            <p class="section-title mb-0">Tickets Escalados Activos · más antiguos primero</p>
+            <p class="section-title mb-0">Tickets Escalados Activos</p>
             <span id="badge-escalados" class="sec-badge"></span>
           </div>
           <div class="tabla-scroll" style="max-height:420px">

@@ -330,7 +330,8 @@ async function cargarDashboard() {
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,
-           ultimos, eds, metEsc, altaPrio, escActivos] =
+           ultimos, eds, metEsc, altaPrio, escActivos,
+           comparacion, diaSemana, tasaRes, cargaActual, reincidencia, catEscaladas] =
       await Promise.all([
         fetch(`${API}/api/supervisor/kpis?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tickets-analista?${qs}`).then(r => r.json()),
@@ -344,17 +345,29 @@ async function cargarDashboard() {
         fetch(`${API}/api/supervisor/metricas-escalacion?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/top-alta-prioridad?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/escalados-activos?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/comparacion?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/por-dia-semana?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/tasa-resolucion?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/carga-actual?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/reincidencia-eds?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/categorias-escaladas?${qs}`).then(r => r.json()),
       ]);
 
     renderKPIs(kpis);
+    renderComparacion(comparacion);
     renderTop5(kpis);
     renderChartAnalistas(porAnalista);
     renderChartCategorias(topCat);
     renderChartDias(porDia);
+    renderChartDiaSemana(diaSemana);
+    renderChartTasaResolucion(tasaRes);
     renderChartTipos(distTipo);
     renderChartEstatus(distEstatus);
     renderChartPrioridad(distPrioridad);
+    renderCargaActual(cargaActual);
     renderTablaEDS(eds);
+    renderReincidenciaEDS(reincidencia);
+    renderChartCategoriasEscaladas(catEscaladas);
     renderKPIsEscalacion(metEsc);
     renderChartEscalacion('chart-esc-reciben', metEsc.reciben, '#7C3AED');
     renderChartEscalacion('chart-esc-envian',  metEsc.envian,  '#E65100');
@@ -992,6 +1005,257 @@ function renderTablaEscaladosActivos(data) {
         </tr>`;}).join('')}
       </tbody>
     </table>`;
+}
+
+/* ── COMPARACIÓN ─────────────────────────────────────────────── */
+
+function renderComparacion(data) {
+  const el = document.getElementById('comparacion-cards');
+  if (!el) return;
+
+  const { actual, anterior, mesAnt, anioAnt } = data || {};
+  const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const labelAnt = mesAnt > 0 ? `${MESES[mesAnt-1]} ${anioAnt}` : `${anioAnt}`;
+
+  const mkCard = (label, keyAct, keyAnt, color, bg, icon) => {
+    const act = actual?.[keyAct] ?? 0;
+    const ant = anterior?.[keyAnt] ?? 0;
+    const diff = ant === 0 ? null : ((act - ant) / ant * 100);
+    const diffAbs = diff !== null ? Math.abs(Math.round(diff)) : null;
+
+    let chip = '', chipStyle = '';
+    if (diff !== null) {
+      if (diff > 0) {
+        chip = `↑ ${diffAbs}%`;
+        chipStyle = `background:#FEE2E2;color:#991B1B`;
+      } else if (diff < 0) {
+        chip = `↓ ${diffAbs}%`;
+        chipStyle = `background:#DCFCE7;color:#166534`;
+      } else {
+        chip = `= Sin cambio`;
+        chipStyle = `background:#F3F4F6;color:#6B7280`;
+      }
+    }
+
+    return `
+      <div class="card p-5 flex flex-col gap-3 border-l-4" style="border-left-color:${color}">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-bold uppercase tracking-widest text-gray-400">${label}</p>
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:${bg}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2">${icon}</svg>
+          </div>
+        </div>
+        <div class="flex items-end justify-between gap-2">
+          <span class="text-4xl font-black text-gray-800 leading-none">${act}</span>
+          ${chip ? `<span class="text-xs font-bold px-2 py-1 rounded-full whitespace-nowrap" style="${chipStyle}">${chip}</span>` : ''}
+        </div>
+        <p class="text-xs text-gray-400">vs <span class="font-semibold text-gray-600">${ant}</span> en ${labelAnt}</p>
+      </div>`;
+  };
+
+  el.innerHTML = [
+    mkCard('Total Tickets', 'total', 'total', '#1565C0', '#EFF6FF',
+      '<rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>'),
+    mkCard('Alta Prioridad', 'altaPrio', 'altaPrio', '#C41E3A', '#FFF5F5',
+      '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    mkCard('Escalados', 'escalados', 'escalados', '#E65100', '#FFF7ED',
+      '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>'),
+  ].join('');
+}
+
+/* ── DÍA DE LA SEMANA ───────────────────────────────────────── */
+
+function renderChartDiaSemana(data) {
+  destroyChart('chart-dia-semana');
+  const DIAS_LABEL = { 1:'Dom', 2:'Lun', 3:'Mar', 4:'Mié', 5:'Jue', 6:'Vie', 7:'Sáb' };
+  const ORDEN = [2,3,4,5,6,7,1];
+
+  const byDia = {};
+  (data || []).forEach(d => { byDia[d.dia] = d.total; });
+
+  const labels = ORDEN.map(n => DIAS_LABEL[n]);
+  const values = ORDEN.map(n => byDia[n] || 0);
+  const maxVal = Math.max(...values, 1);
+
+  charts['chart-dia-semana'] = new Chart(document.getElementById('chart-dia-semana'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: values.map(v => v === maxVal ? '#C41E3A' : '#BFDBFE'),
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      ...BASE_OPTS,
+      plugins: {
+        ...BASE_OPTS.plugins,
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} tickets` } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+        y: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 11 }, stepSize: 1 }, beginAtZero: true }
+      }
+    },
+    plugins: [noDataPlugin()]
+  });
+}
+
+/* ── TASA DE RESOLUCIÓN ─────────────────────────────────────── */
+
+function renderChartTasaResolucion(data) {
+  destroyChart('chart-tasa-resolucion');
+  if (!data?.length) return;
+
+  const sorted = [...data].sort((a, b) => {
+    const ta = a.total > 0 ? a.cerrados / a.total : 0;
+    const tb = b.total > 0 ? b.cerrados / b.total : 0;
+    return ta - tb;
+  });
+
+  const labels = sorted.map(d => d.nombre);
+  const values = sorted.map(d => d.total > 0 ? Math.round(d.cerrados / d.total * 100) : 0);
+  const colors = values.map(v =>
+    v >= 80 ? '#1B5E20' : v >= 60 ? '#4CAF50' : v >= 40 ? '#F59E0B' : '#C41E3A'
+  );
+
+  charts['chart-tasa-resolucion'] = new Chart(document.getElementById('chart-tasa-resolucion'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: colors, borderRadius: 5, borderSkipped: false }]
+    },
+    options: {
+      ...BASE_OPTS,
+      indexAxis: 'y',
+      plugins: {
+        ...BASE_OPTS.plugins,
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = sorted[ctx.dataIndex];
+              return ` ${ctx.parsed.x}%  (${d.cerrados} cerrados / ${d.total} asignados)`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          min: 0, max: 100,
+          grid: { color: '#F3F4F6' },
+          ticks: { font: { size: 11 }, callback: v => v + '%' }
+        },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    },
+    plugins: [noDataPlugin('Sin analistas con 3+ tickets en este período')]
+  });
+}
+
+/* ── CARGA ACTUAL ───────────────────────────────────────────── */
+
+function renderCargaActual(data) {
+  const el = document.getElementById('carga-grid');
+  if (!el) return;
+  if (!data?.length) { el.innerHTML = sinDatos(); return; }
+
+  const totalActivos = data.reduce((s, a) => s + a.activos, 0) || 1;
+
+  el.innerHTML = data.map(a => {
+    const pct = Math.round(a.activos / totalActivos * 100);
+    const hasUrgente = a.altaPrio > 0;
+    const borderColor = hasUrgente ? '#C41E3A' : a.escalados > 0 ? '#7C3AED' : '#1565C0';
+    const numColor    = hasUrgente ? '#C41E3A' : a.escalados > 0 ? '#7C3AED' : '#1565C0';
+    return `
+      <div class="card p-4 flex flex-col gap-2 border-t-4" style="border-top-color:${borderColor}">
+        <p class="text-sm font-bold text-gray-700 truncate leading-snug" title="${a.nombre}">${a.nombre}</p>
+        <p class="text-4xl font-black leading-none" style="color:${numColor}">${a.activos}</p>
+        <div class="bg-gray-100 rounded-full h-1.5">
+          <div class="h-1.5 rounded-full transition-all" style="width:${pct}%;background:${borderColor}"></div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 text-xs">
+          ${a.altaPrio  ? `<span class="badge-tipo" style="background:#FEE2E2;color:#991B1B">⚠ ${a.altaPrio} alta prio</span>` : ''}
+          ${a.escalados ? `<span class="badge-tipo" style="background:#F5F3FF;color:#6D28D9">↑ ${a.escalados} escalados</span>` : ''}
+          ${!a.altaPrio && !a.escalados ? `<span class="text-green-600 font-medium">Sin urgentes</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* ── REINCIDENCIA EDS ───────────────────────────────────────── */
+
+function renderReincidenciaEDS(data) {
+  const el    = document.getElementById('tabla-reincidencia');
+  const badge = document.getElementById('badge-reincidencia');
+  if (!data?.length) {
+    if (badge) badge.textContent = '0';
+    el.innerHTML = `<p class="text-center text-gray-400 text-sm py-8">Sin EDS con incidencias repetidas en este período</p>`;
+    return;
+  }
+  if (badge) badge.textContent = `${data.length} combinaciones`;
+
+  const reincBadge = n => {
+    if (n >= 10) return `<span class="badge-tipo" style="background:#FEE2E2;color:#991B1B">${n}×</span>`;
+    if (n >= 6)  return `<span class="badge-tipo" style="background:#FFEDD5;color:#9A3412">${n}×</span>`;
+    return         `<span class="badge-tipo" style="background:#FEF9C3;color:#92400E">${n}×</span>`;
+  };
+
+  el.innerHTML = `
+    <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
+      <thead>${tableHeader(['#', 'EDS', 'Categoría Repetida', 'Repeticiones en el Período'])}</thead>
+      <tbody class="bg-white divide-y divide-gray-100">
+        ${data.map((r, i) => {
+          const rowBg = i % 2 === 0 ? '' : 'style="background:#FFFDF0"';
+          return `
+        <tr class="hover:bg-amber-50 transition" ${rowBg}>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs">${i+1}</td>
+          <td class="px-4 py-3 font-semibold text-gray-800 max-w-48 truncate" title="${r.EDS}">${r.EDS}</td>
+          <td class="px-4 py-3 text-gray-600 max-w-52 truncate" title="${r.categoria}">${r.categoria}</td>
+          <td class="px-4 py-3">${reincBadge(r.total)}</td>
+        </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+/* ── CATEGORÍAS ESCALADAS ───────────────────────────────────── */
+
+function renderChartCategoriasEscaladas(data) {
+  destroyChart('chart-cat-escaladas');
+  if (!data?.length) return;
+  const labels = data.map(d => d.nombre);
+  const values = data.map(d => d.total);
+
+  charts['chart-cat-escaladas'] = new Chart(document.getElementById('chart-cat-escaladas'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: Array.from({ length: labels.length }, (_, i) => {
+          const t = labels.length > 1 ? i / (labels.length - 1) : 0;
+          return lerpHex('#4C1D95', '#A78BFA', t);
+        }),
+        borderRadius: 5,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      ...BASE_OPTS,
+      indexAxis: 'y',
+      plugins: {
+        ...BASE_OPTS.plugins,
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} tickets escalados` } }
+      },
+      scales: {
+        x: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 11 }, stepSize: 1 } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    },
+    plugins: [noDataPlugin('Sin escalaciones en este período')]
+  });
 }
 
 function sinDatos() {

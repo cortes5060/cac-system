@@ -370,9 +370,146 @@ const getTablaEscaladosActivos = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+/* ── ANÁLISIS AVANZADO ─────────────────────────────────────── */
+
+const getComparacion = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const db = await pool;
+
+    const mesAnt  = p.mes > 1 ? p.mes - 1 : (p.mes === 1 ? 12 : 0);
+    const anioAnt = p.mes === 1 ? p.anio - 1 : (p.mes === 0 ? p.anio - 1 : p.anio);
+
+    const mkMetrica = async (anio, mes) => {
+      const pp = { anio, mes };
+      const r  = db.request();
+      addInputs(r, pp, f);
+      const result = await r.query(`
+        SELECT
+          COUNT(t.id) AS total,
+          SUM(CASE WHEN pr.nombre = 'Alta' THEN 1 ELSE 0 END) AS altaPrio,
+          SUM(CASE WHEN e.nombre IN ('Escalado a cotizaciones','Escalado Servicio Técnico') THEN 1 ELSE 0 END) AS escalados
+        FROM tickets t
+        LEFT JOIN prioridad pr ON t.idPrioridad = pr.id
+        LEFT JOIN estatus   e  ON t.idEstatus   = e.id
+        WHERE ${periodoWhere(pp, 't')}${filtroWhere(f, 't')}
+      `);
+      return result.recordset[0];
+    };
+
+    const [actual, anterior] = await Promise.all([
+      mkMetrica(p.anio, p.mes),
+      mkMetrica(anioAnt, mesAnt),
+    ]);
+
+    res.json({ actual, anterior, mesAnt, anioAnt });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getPorDiaSemana = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const r = mkReq(await pool, p, f);
+    const result = await r.query(`
+      SELECT DATEPART(WEEKDAY, fechaHora) AS dia, COUNT(*) AS total
+      FROM tickets
+      WHERE ${periodoWhere(p)}${filtroWhere(f)}
+      GROUP BY DATEPART(WEEKDAY, fechaHora)
+      ORDER BY dia
+    `);
+    res.json(result.recordset);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getTasaResolucion = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const r = mkReq(await pool, p, f);
+    const result = await r.query(`
+      SELECT
+        a.nombre,
+        COUNT(t.id) AS total,
+        SUM(CASE WHEN e.nombre = 'Cerrado' THEN 1 ELSE 0 END) AS cerrados
+      FROM tickets t
+      JOIN analistas a ON ISNULL(t.escalado, t.idAnalista) = a.id
+      LEFT JOIN estatus e ON t.idEstatus = e.id
+      WHERE ${periodoWhere(p, 't')}${filtroWhere(f, 't')}
+        AND a.idRol = 1
+      GROUP BY a.id, a.nombre
+      HAVING COUNT(t.id) >= 3
+      ORDER BY cerrados * 100.0 / COUNT(t.id) DESC
+    `);
+    res.json(result.recordset);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getCargaActual = async (req, res) => {
+  try {
+    const f = filtros(req);
+    const db = await pool;
+    const r  = db.request();
+    if (f.idGrupoColaborador) r.input('fGrp', sql.Int, f.idGrupoColaborador);
+    const fw = f.idGrupoColaborador ? ` AND t.idGrupoColaborador = @fGrp` : '';
+    const result = await r.query(`
+      SELECT
+        a.nombre,
+        COUNT(t.id) AS activos,
+        SUM(CASE WHEN pr.nombre = 'Alta' THEN 1 ELSE 0 END) AS altaPrio,
+        SUM(CASE WHEN t.escalado != t.idAnalista AND t.idAnalista IS NOT NULL THEN 1 ELSE 0 END) AS escalados
+      FROM tickets t
+      JOIN analistas a ON ISNULL(t.escalado, t.idAnalista) = a.id
+      LEFT JOIN estatus   e  ON t.idEstatus   = e.id
+      LEFT JOIN prioridad pr ON t.idPrioridad = pr.id
+      WHERE a.idRol = 1 AND a.activo = 1 AND a.existe = 1
+        AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))${fw}
+      GROUP BY a.id, a.nombre
+      HAVING COUNT(t.id) > 0
+      ORDER BY activos DESC
+    `);
+    res.json(result.recordset);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getReincidenciaEDS = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const r = mkReq(await pool, p, f);
+    const result = await r.query(`
+      SELECT TOP 60 t.EDS, c.nombre AS categoria, COUNT(*) AS total
+      FROM tickets t
+      JOIN categorias c ON t.idCategoria = c.id
+      WHERE ${periodoWhere(p, 't')}${filtroWhere(f, 't')}
+        AND t.EDS IS NOT NULL AND t.EDS != ''
+      GROUP BY t.EDS, c.id, c.nombre
+      HAVING COUNT(*) >= 3
+      ORDER BY total DESC, t.EDS
+    `);
+    res.json(result.recordset);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
+const getCategoriasEscaladas = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const r = mkReq(await pool, p, f);
+    const result = await r.query(`
+      SELECT TOP 10 c.nombre, COUNT(t.id) AS total
+      FROM tickets t
+      JOIN categorias c ON t.idCategoria = c.id
+      WHERE ${periodoWhere(p, 't')}${filtroWhere(f, 't')}
+        AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL AND t.escalado != t.idAnalista
+      GROUP BY c.id, c.nombre
+      ORDER BY total DESC
+    `);
+    res.json(result.recordset);
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
 module.exports = {
   getKPIs, getTicketsPorAnalista, getTopCategorias, getTicketsPorDia,
   getDistribucionTipo, getDistribucionEstatus, getDistribucionPrioridad,
   getHeatmapEDS, getUltimosTickets, getRankingEDS,
   getTopAltaPrioridad, getMetricasEscalacion, getTablaEscaladosActivos,
+  getComparacion, getPorDiaSemana, getTasaResolucion,
+  getCargaActual, getReincidenciaEDS, getCategoriasEscaladas,
 };

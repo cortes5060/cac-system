@@ -212,7 +212,7 @@ const getUltimosTickets = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT TOP 10
+      SELECT TOP 500
         t.id, t.codigo2wd, t.casoAtendido,
         ISNULL(a.nombre,  '—') AS analista,
         t.EDS,
@@ -239,7 +239,7 @@ const getRankingEDS = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT EDS, COUNT(*) AS total
+      SELECT TOP 30 EDS, COUNT(*) AS total
       FROM tickets
       WHERE ${periodoWhere(p)} AND EDS IS NOT NULL AND EDS != ''${filtroWhere(f)}
       GROUP BY EDS ORDER BY total DESC
@@ -269,13 +269,14 @@ const getTopAltaPrioridad = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT TOP 10
+      SELECT
         t.id, t.codigo2wd, t.casoAtendido, t.EDS,
         ISNULL(cr.nombre, '—') AS creador,
         ISNULL(es.nombre, '—') AS escaladoA,
         ISNULL(e.nombre,  '—') AS estatus,
         ISNULL(pr.nombre, '—') AS prioridad,
         FORMAT(t.fechaHora, 'dd/MM/yyyy HH:mm') AS fechaRegistro,
+        DATEDIFF(DAY, t.fechaHora, GETDATE()) AS diasAbierto,
         CASE WHEN t.idAnalista != t.escalado AND t.escalado IS NOT NULL THEN 1 ELSE 0 END AS fueEscalado
       FROM tickets t
       LEFT JOIN analistas  cr ON t.idAnalista  = cr.id
@@ -285,7 +286,7 @@ const getTopAltaPrioridad = async (req, res) => {
       WHERE ${periodoWhere(p,'t')}${filtroWhere(f,'t')}
         AND pr.nombre = 'Alta'
         AND e.nombre NOT IN ('Cerrado','Cancelado')
-      ORDER BY t.fechaHora DESC
+      ORDER BY t.fechaHora ASC
     `);
     res.json(result.recordset);
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -344,14 +345,15 @@ const getTablaEscaladosActivos = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT TOP 20
+      SELECT
         t.id, t.codigo2wd, t.casoAtendido, t.EDS,
         ISNULL(cr.nombre, '—') AS creador,
         ISNULL(es.nombre, '—') AS escaladoA,
         ISNULL(e.nombre,  '—') AS estatus,
         ISNULL(pr.nombre, '—') AS prioridad,
         ISNULL(g.nombre,  '—') AS grupo,
-        FORMAT(t.fechaHora, 'dd/MM/yyyy HH:mm') AS fechaRegistro
+        FORMAT(t.fechaHora, 'dd/MM/yyyy HH:mm') AS fechaRegistro,
+        DATEDIFF(DAY, t.fechaHora, GETDATE()) AS diasAbierto
       FROM tickets t
       LEFT JOIN analistas  cr ON t.idAnalista  = cr.id
       LEFT JOIN analistas  es ON t.escalado    = es.id
@@ -362,7 +364,7 @@ const getTablaEscaladosActivos = async (req, res) => {
         AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
         AND t.escalado != t.idAnalista
         AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))
-      ORDER BY pr.nombre ASC, t.fechaHora DESC
+      ORDER BY t.fechaHora ASC
     `);
     res.json(result.recordset);
   } catch (error) { res.status(500).json({ error: error.message }); }

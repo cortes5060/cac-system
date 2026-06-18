@@ -16,6 +16,7 @@
       font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
       text-transform: uppercase; color: #9CA3AF; margin-bottom: 1rem;
     }
+    .section-title.mb-0 { margin-bottom: 0; }
     th { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
     td { font-size: 0.8rem; }
     .badge-tipo { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; }
@@ -179,7 +180,7 @@
   </nav>
 
   <!-- MAIN -->
-  <main class="max-w-7xl mx-auto px-6 py-6 space-y-4 fade-in">
+  <main class="max-w-7xl mx-auto px-6 py-8 space-y-6 fade-in">
 
     <!-- ── FILTROS ──────────────────────────────────────────── -->
     <div class="card p-4">
@@ -332,58 +333,21 @@
       </div>
     </div>
 
-    <!-- ── MAPA DE CALOR ──────────────────────────────────────── -->
-    <div class="sec-card" id="sec-heatmap">
-      <div class="sec-header" onclick="toggleSec('sec-heatmap')">
-        <div class="sec-label">
-          <div class="sec-accent" style="background:#E65100"></div>
-          <span class="sec-title-text">Mapa de Calor · EDS × Categoría</span>
-        </div>
-        <div class="flex items-center gap-3">
-          <div class="hidden sm:flex items-center gap-1.5 text-xs text-gray-400">
-            <span>Bajo</span>
-            <div class="flex gap-0.5">
-              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.15)"></div>
-              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.38)"></div>
-              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.62)"></div>
-              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,0.85)"></div>
-              <div class="w-3 h-3 rounded" style="background:rgba(196,30,58,1.00)"></div>
-            </div>
-            <span>Alto</span>
-          </div>
-          <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </div>
-      </div>
-      <div class="sec-body p-5">
-        <div id="heatmap-eds"></div>
-      </div>
-    </div>
-
-    <!-- ── HISTORIAL DE TICKETS ───────────────────────────────── -->
+    <!-- ── RANKING EDS ──────────────────────────────────────────── -->
     <div class="sec-card" id="sec-historial">
       <div class="sec-header" onclick="toggleSec('sec-historial')">
         <div class="sec-label">
           <div class="sec-accent" style="background:#0891B2"></div>
-          <span class="sec-title-text">Historial de Tickets</span>
+          <span class="sec-title-text">Ranking EDS con Más Incidencias</span>
+          <span class="sec-badge">Top 30</span>
         </div>
         <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </div>
-      <div class="sec-body p-5 space-y-5">
-        <div>
-          <p class="section-title">Últimos 10 Tickets Registrados</p>
-          <div class="tabla-scroll">
-            <div id="tabla-ultimos"></div>
-          </div>
-        </div>
-        <div>
-          <p class="section-title">Ranking EDS con Más Incidencias</p>
-          <div class="tabla-scroll">
-            <div id="tabla-eds"></div>
-          </div>
+      <div class="sec-body p-6">
+        <div class="tabla-scroll" style="max-height:420px">
+          <div id="tabla-eds"></div>
         </div>
       </div>
     </div>
@@ -418,20 +382,58 @@
 
         <!-- Alta prioridad -->
         <div>
-          <p class="section-title">Top 10 Tickets de Alta Prioridad Activos</p>
-          <div class="tabla-scroll">
+          <div class="flex items-center justify-between mb-3">
+            <p class="section-title mb-0">Tickets de Alta Prioridad Activos · más antiguos primero</p>
+            <span id="badge-alta-prio" class="sec-badge"></span>
+          </div>
+          <div class="tabla-scroll" style="max-height:420px">
             <div id="tabla-alta-prioridad"></div>
           </div>
         </div>
 
         <!-- Escalados activos -->
         <div>
-          <p class="section-title">Tickets Escalados Activos (Top 20)</p>
-          <div class="tabla-scroll">
+          <div class="flex items-center justify-between mb-3">
+            <p class="section-title mb-0">Tickets Escalados Activos · más antiguos primero</p>
+            <span id="badge-escalados" class="sec-badge"></span>
+          </div>
+          <div class="tabla-scroll" style="max-height:420px">
             <div id="tabla-escalados-activos"></div>
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ── TODOS LOS TICKETS (última tabla) ─────────────────────── -->
+    <div class="sec-card" id="sec-todos-tickets">
+      <div class="sec-header" onclick="toggleSec('sec-todos-tickets')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#059669"></div>
+          <span class="sec-title-text">Todos los Tickets del Período</span>
+          <span id="badge-todos-tickets" class="sec-badge">—</span>
+        </div>
+        <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="sec-body p-6">
+        <!-- Búsqueda -->
+        <div class="flex items-center gap-3 mb-4">
+          <div class="relative" style="max-width:320px;width:100%">
+            <svg class="absolute text-gray-400" width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2.5" style="left:11px;top:50%;transform:translateY(-50%)">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="buscar-codigo" type="text" placeholder="Buscar por Código Ticket 2WD…"
+              class="fil-input" style="padding-left:34px;width:100%" oninput="filtrarTablaTickets()">
+          </div>
+          <span id="tickets-count" class="text-xs text-gray-400 whitespace-nowrap"></span>
+        </div>
+        <!-- Tabla -->
+        <div class="tabla-scroll" style="max-height:520px">
+          <div id="tabla-todos-tickets"></div>
+        </div>
       </div>
     </div>
 

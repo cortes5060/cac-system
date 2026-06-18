@@ -4,9 +4,10 @@ if (!supervId) window.location.href = 'index.html';
 
 let mesActual, anioActual;
 let filtroAnalista = '', filtroEDS = '', filtroCategoria = '', filtroSubcat = '';
-let filtroGrupo = 0;  // 0 = General (todos los grupos)
+let filtroGrupo = 0;
 let _grupos = [];
 let _todasCategorias = [];
+let _todosTickets = [];
 let buscEDS = null, buscCat = null, buscSubcat = null;
 const charts = {};
 
@@ -329,7 +330,7 @@ async function cargarDashboard() {
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,
-           ultimos, eds, heatmap, metEsc, altaPrio, escActivos] =
+           ultimos, eds, metEsc, altaPrio, escActivos] =
       await Promise.all([
         fetch(`${API}/api/supervisor/kpis?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tickets-analista?${qs}`).then(r => r.json()),
@@ -340,7 +341,6 @@ async function cargarDashboard() {
         fetch(`${API}/api/supervisor/distribucion-prioridad?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/ultimos-tickets?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/ranking-eds?${qs}`).then(r => r.json()),
-        fetch(`${API}/api/supervisor/heatmap-eds?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/metricas-escalacion?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/top-alta-prioridad?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/escalados-activos?${qs}`).then(r => r.json()),
@@ -354,14 +354,13 @@ async function cargarDashboard() {
     renderChartTipos(distTipo);
     renderChartEstatus(distEstatus);
     renderChartPrioridad(distPrioridad);
-    renderHeatmapEDS(heatmap);
-    renderTablaUltimos(ultimos);
     renderTablaEDS(eds);
     renderKPIsEscalacion(metEsc);
     renderChartEscalacion('chart-esc-reciben', metEsc.reciben, '#7C3AED');
     renderChartEscalacion('chart-esc-envian',  metEsc.envian,  '#E65100');
     renderTablaAltaPrioridad(altaPrio);
     renderTablaEscaladosActivos(escActivos);
+    renderTablaUltimos(ultimos);
 
   } catch (e) {
     console.error('Error cargando dashboard:', e);
@@ -802,27 +801,58 @@ function tableHeader(cols) {
   return `<tr style="background:#122B4F">${cols.map(c => `<th class="px-4 py-3 text-left text-blue-200">${c}</th>`).join('')}</tr>`;
 }
 
+function diasBadge(dias) {
+  if (dias == null || dias === '') return '—';
+  const n = parseInt(dias);
+  if (n <= 2)  return `<span class="badge-tipo" style="background:#DCFCE7;color:#166534">${n}d</span>`;
+  if (n <= 6)  return `<span class="badge-tipo" style="background:#FEF9C3;color:#92400E">${n}d</span>`;
+  if (n <= 13) return `<span class="badge-tipo" style="background:#FFEDD5;color:#9A3412">${n}d</span>`;
+  return `<span class="badge-tipo" style="background:#FEE2E2;color:#991B1B">${n}d</span>`;
+}
+
 function renderTablaUltimos(data) {
-  const el = document.getElementById('tabla-ultimos');
-  if (!data.length) { el.innerHTML = sinDatos(); return; }
+  _todosTickets = Array.isArray(data) ? data : [];
+  const badge = document.getElementById('badge-todos-tickets');
+  if (badge) badge.textContent = _todosTickets.length;
+  filtrarTablaTickets();
+}
+
+function filtrarTablaTickets() {
+  const q = (document.getElementById('buscar-codigo')?.value || '').trim().toLowerCase();
+  const datos = q
+    ? _todosTickets.filter(t => (t.codigo2wd || '').toLowerCase().includes(q))
+    : _todosTickets;
+
+  const cnt = document.getElementById('tickets-count');
+  if (cnt) cnt.textContent = q
+    ? `${datos.length} de ${_todosTickets.length} tickets`
+    : `${_todosTickets.length} tickets en el período`;
+
+  const el = document.getElementById('tabla-todos-tickets');
+  if (!el) return;
+  if (!datos.length) { el.innerHTML = sinDatos(); return; }
+
+  const pCol = { 'Alta': '#C41E3A', 'Media': '#E65100', 'Baja': '#1B5E20' };
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'Responsable', 'EDS', 'Categoría', 'Tipo', 'Estatus', 'Prioridad', 'Registro'])}</thead>
+      <thead>${tableHeader(['#', 'Código 2WD', 'Caso', 'Responsable', 'EDS', 'Categoría', 'Tipo', 'Estatus', 'Prioridad', 'Registro'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        ${data.map((t, i) => {
-          const pCol = { 'Alta': 'text-red-600 font-bold', 'Media': 'text-orange-500 font-semibold', 'Baja': 'text-green-600' };
+        ${datos.map((t, i) => {
+          const pC = pCol[t.prioridad];
+          const prioStyle = pC ? `style="color:${pC};font-weight:700"` : 'class="text-gray-400"';
+          const rowBg = i % 2 === 0 ? '' : 'style="background:#FAFAFA"';
           return `
-        <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido||''}">${t.casoAtendido || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-700 whitespace-nowrap">${t.analista}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS||''}">${t.EDS || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.categoria}">${t.categoria}</td>
-          <td class="px-4 py-2.5">${tipoBadge(t.tipoCaso)}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus || '—'}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad] || 'text-gray-400'}">${t.prioridad || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap">${t.fechaRegistro || '—'}</td>
+        <tr class="hover:bg-blue-50 transition" ${rowBg}>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs">${i+1}</td>
+          <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido || '—'}</td>
+          <td class="px-4 py-3 text-gray-700 text-sm whitespace-nowrap">${t.analista}</td>
+          <td class="px-4 py-3 text-gray-500 text-sm max-w-28 truncate" title="${t.EDS||''}">${t.EDS || '—'}</td>
+          <td class="px-4 py-3 text-gray-500 text-sm max-w-32 truncate" title="${t.categoria}">${t.categoria}</td>
+          <td class="px-4 py-3">${tipoBadge(t.tipoCaso)}</td>
+          <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${t.estatus || '—'}</td>
+          <td class="px-4 py-3 text-xs whitespace-nowrap" ${prioStyle}>${t.prioridad || '—'}</td>
+          <td class="px-4 py-3 text-gray-400 text-xs whitespace-nowrap">${t.fechaRegistro || '—'}</td>
         </tr>`;}).join('')}
       </tbody>
     </table>`;
@@ -899,47 +929,67 @@ function renderChartEscalacion(canvasId, data, color) {
 
 function renderTablaAltaPrioridad(data) {
   const el = document.getElementById('tabla-alta-prioridad');
-  if (!data?.length) { el.innerHTML = sinDatos(); return; }
+  const badge = document.getElementById('badge-alta-prio');
+  if (!data?.length) {
+    if (badge) badge.textContent = '0';
+    el.innerHTML = sinDatos();
+    return;
+  }
+  if (badge) badge.textContent = data.length;
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'EDS', 'Creador', 'Responsable', 'Estatus', 'Registro'])}</thead>
+      <thead>${tableHeader(['#', 'Antigüedad', 'Código 2WD', 'Caso', 'EDS', 'Creador', 'Responsable', 'Estatus', 'Registro'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        ${data.map((t, i) => `
-        <tr class="hover:bg-red-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 whitespace-nowrap">${t.creador}</td>
-          <td class="px-4 py-2.5 whitespace-nowrap ${t.fueEscalado ? 'text-purple-700 font-semibold' : 'text-gray-600'}">${t.escaladoA}${t.fueEscalado ? ' ↑' : ''}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
-        </tr>`).join('')}
+        ${data.map((t, i) => {
+          const rowBg = i % 2 === 0 ? '' : 'style="background:#FFFBFB"';
+          return `
+        <tr class="hover:bg-red-50 transition" ${rowBg}>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs">${i+1}</td>
+          <td class="px-4 py-3 whitespace-nowrap">${diasBadge(t.diasAbierto)}</td>
+          <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido||'—'}</td>
+          <td class="px-4 py-3 text-gray-500 text-sm max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
+          <td class="px-4 py-3 text-gray-600 text-sm whitespace-nowrap">${t.creador}</td>
+          <td class="px-4 py-3 text-sm whitespace-nowrap ${t.fueEscalado ? 'font-semibold' : 'text-gray-600'}" ${t.fueEscalado ? 'style="color:#7C3AED"' : ''}>${t.escaladoA}${t.fueEscalado ? ' ↑' : ''}</td>
+          <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
+          <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
+        </tr>`;}).join('')}
       </tbody>
     </table>`;
 }
 
 function renderTablaEscaladosActivos(data) {
   const el = document.getElementById('tabla-escalados-activos');
-  if (!data?.length) { el.innerHTML = sinDatos(); return; }
-  const pCol = { 'Alta': 'text-red-600 font-bold', 'Media': 'text-orange-500 font-semibold', 'Baja': 'text-green-600' };
+  const badge = document.getElementById('badge-escalados');
+  if (!data?.length) {
+    if (badge) badge.textContent = '0';
+    el.innerHTML = sinDatos();
+    return;
+  }
+  if (badge) badge.textContent = data.length;
+  const pCol = { 'Alta': '#C41E3A', 'Media': '#E65100', 'Baja': '#1B5E20' };
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'EDS', 'Creador', '→ Escalado a', 'Grupo', 'Estatus', 'Prioridad', 'Registro'])}</thead>
+      <thead>${tableHeader(['#', 'Antigüedad', 'Código 2WD', 'Caso', 'EDS', 'Creador', '→ Escalado a', 'Grupo', 'Estatus', 'Prioridad', 'Registro'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        ${data.map((t, i) => `
-        <tr class="hover:bg-purple-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-36 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-24 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${t.creador}</td>
-          <td class="px-4 py-2.5 text-purple-700 font-semibold whitespace-nowrap">${t.escaladoA}</td>
-          <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${t.grupo}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad]||'text-gray-400'}">${t.prioridad}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
-        </tr>`).join('')}
+        ${data.map((t, i) => {
+          const pC = pCol[t.prioridad];
+          const prioStyle = pC ? `style="color:${pC};font-weight:700"` : 'class="text-gray-400"';
+          const rowBg = i % 2 === 0 ? '' : 'style="background:#FAFAFF"';
+          return `
+        <tr class="hover:bg-purple-50 transition" ${rowBg}>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs">${i+1}</td>
+          <td class="px-4 py-3 whitespace-nowrap">${diasBadge(t.diasAbierto)}</td>
+          <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido||'—'}</td>
+          <td class="px-4 py-3 text-gray-500 text-sm max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
+          <td class="px-4 py-3 text-gray-500 text-sm whitespace-nowrap">${t.creador}</td>
+          <td class="px-4 py-3 text-sm font-semibold whitespace-nowrap" style="color:#7C3AED">${t.escaladoA}</td>
+          <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">${t.grupo}</td>
+          <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
+          <td class="px-4 py-3 text-xs whitespace-nowrap" ${prioStyle}>${t.prioridad}</td>
+          <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
+        </tr>`;}).join('')}
       </tbody>
     </table>`;
 }

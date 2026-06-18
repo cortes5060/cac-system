@@ -12,20 +12,22 @@ function periodo(req) {
 
 function filtros(req) {
   return {
-    idAnalista:         req.query.idAnalista  ? parseInt(req.query.idAnalista)  : null,
-    eds:                req.query.eds         || null,
-    idCategoria:        req.query.idCategoria ? parseInt(req.query.idCategoria) : null,
-    idGrupoColaborador: req.query.idGrupo     ? parseInt(req.query.idGrupo)     : null,
+    idAnalista:         req.query.idAnalista         ? parseInt(req.query.idAnalista)  : null,
+    eds:                req.query.eds                || null,
+    categoriaPrincipal: req.query.categoriaPrincipal || null,
+    idCategoria:        req.query.idCategoria        ? parseInt(req.query.idCategoria) : null,
+    idGrupoColaborador: req.query.idGrupo            ? parseInt(req.query.idGrupo)     : null,
   };
 }
 
 function addInputs(r, p, f) {
   r.input('anio', sql.Int, p.anio);
-  if (p.mes > 0)              r.input('mes',  sql.Int,      p.mes);
-  if (f.idAnalista)           r.input('fAna', sql.Int,      f.idAnalista);
-  if (f.eds)                  r.input('fEDS', sql.NVarChar, f.eds);
-  if (f.idCategoria)          r.input('fCat', sql.Int,      f.idCategoria);
-  if (f.idGrupoColaborador)   r.input('fGrp', sql.Int,      f.idGrupoColaborador);
+  if (p.mes > 0)             r.input('mes',   sql.Int,      p.mes);
+  if (f.idAnalista)          r.input('fAna',  sql.Int,      f.idAnalista);
+  if (f.eds)                 r.input('fEDS',  sql.NVarChar, f.eds);
+  if (f.categoriaPrincipal)  r.input('fCatP', sql.NVarChar, f.categoriaPrincipal);
+  if (f.idCategoria)         r.input('fCat',  sql.Int,      f.idCategoria);
+  if (f.idGrupoColaborador)  r.input('fGrp',  sql.Int,      f.idGrupoColaborador);
 }
 
 function periodoWhere(p, alias = '') {
@@ -38,10 +40,11 @@ function periodoWhere(p, alias = '') {
 function filtroWhere(f, alias = '') {
   const pre = alias ? alias + '.' : '';
   let w = '';
-  if (f.idAnalista)          w += ` AND ${pre}escalado            = @fAna`;
-  if (f.eds)                 w += ` AND ${pre}EDS                 = @fEDS`;
-  if (f.idCategoria)         w += ` AND ${pre}idCategoria         = @fCat`;
-  if (f.idGrupoColaborador)  w += ` AND ${pre}idGrupoColaborador  = @fGrp`;
+  if (f.idAnalista)         w += ` AND ${pre}escalado = @fAna`;
+  if (f.eds)                w += ` AND ${pre}EDS = @fEDS`;
+  if (f.categoriaPrincipal) w += ` AND EXISTS (SELECT 1 FROM categorias _c WHERE _c.id = ${pre}idCategoria AND _c.categoriaprincipal = @fCatP)`;
+  if (f.idCategoria)        w += ` AND ${pre}idCategoria = @fCat`;
+  if (f.idGrupoColaborador) w += ` AND ${pre}idGrupoColaborador = @fGrp`;
   return w;
 }
 

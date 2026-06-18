@@ -15,7 +15,7 @@ const getCategorias = async (req, res) => {
   try {
     const connection = await pool;
     const result = await connection.request()
-      .query(`SELECT id, nombre FROM categorias WHERE activo = 1 ORDER BY nombre`);
+      .query(`SELECT id, nombre, categoriaprincipal FROM categorias WHERE activo = 1 ORDER BY nombre`);
     res.json(result.recordset);
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -22,11 +22,10 @@ function cerrarSesion() {
 // ─── Router ───────────────────────────────────────────────
 async function mostrarSeccion(tipo) {
     const c = document.getElementById('tabContenido');
-    if (tipo === 'analistas')  await seccionAnalistas(c);
-    else if (tipo === 'orden') await seccionOrden(c);
-    else if (tipo === 'categorias') await seccionCategorias(c);
-    else if (tipo === 'eds')      await seccionEDS(c);
+    if (tipo === 'analistas')     await seccionAnalistas(c);
+    else if (tipo === 'orden')    await seccionOrden(c);
     else if (tipo === 'horarios') await seccionHorarios(c);
+    else if (tipo === 'buscar')   await seccionBuscar(c);
     else if (tipo === 'importar') await seccionImportar(c);
 }
 
@@ -260,203 +259,6 @@ async function guardarOrden() {
     }
 }
 
-// ─── CATEGORÍAS ───────────────────────────────────────────
-async function seccionCategorias(c) {
-    cargando(c);
-    try {
-        const data = await fetch(`${API}/api/coordinador/categorias`).then(r => r.json());
-
-        c.innerHTML = `
-            <div class="fade-in">
-                ${seccionHeader('Categorías de Tickets', '#1565C0')}
-
-                <div class="flex gap-3 mb-6 max-w-md">
-                    <input id="cat_nuevo" type="text" placeholder="Nombre de nueva categoría"
-                        class="flex-1 border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"
-                        onkeypress="if(event.key==='Enter') agregarCategoria()"/>
-                    <button onclick="agregarCategoria()"
-                        class="px-5 py-2.5 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition btn-navy">
-                        Agregar
-                    </button>
-                </div>
-                <span id="cat_msg" class="block text-sm font-medium mb-4"></span>
-
-                <div class="overflow-x-auto rounded-xl border border-gray-200 max-w-lg">
-                    <table class="min-w-full">
-                        <thead>
-                            <tr style="background:#122B4F">
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Categoría</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Estado</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Acción</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-100">
-                            ${data.map(cat => `
-                            <tr class="hover:bg-gray-50 transition text-sm">
-                                <td class="px-5 py-3 font-medium text-gray-800">${cat.nombre}</td>
-                                <td class="px-5 py-3">
-                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold
-                                        ${cat.activo ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
-                                        <span class="w-1.5 h-1.5 rounded-full ${cat.activo ? 'bg-green-500' : 'bg-gray-400'}"></span>
-                                        ${cat.activo ? 'Activa' : 'Inactiva'}
-                                    </span>
-                                </td>
-                                <td class="px-5 py-3">
-                                    <button onclick="toggleCat(${cat.id}, ${cat.activo ? 0 : 1})"
-                                        class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition
-                                        ${cat.activo
-                                            ? 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200'
-                                            : 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200'}">
-                                        ${cat.activo ? 'Desactivar' : 'Activar'}
-                                    </button>
-                                </td>
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>`;
-    } catch { errorHtml(c); }
-}
-
-async function agregarCategoria() {
-    const input = document.getElementById('cat_nuevo');
-    const nombre = input?.value?.trim();
-    if (!nombre) return;
-
-    try {
-        const res = await fetch(`${API}/api/coordinador/categorias`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nombre })
-        });
-        if (!res.ok) throw new Error();
-        input.value = '';
-        await seccionCategorias(document.getElementById('tabContenido'));
-    } catch {
-        notif('cat_msg', '✗ Error al agregar', 'err');
-    }
-}
-
-async function toggleCat(id, activo) {
-    try {
-        const res = await fetch(`${API}/api/coordinador/categorias/${id}/estado`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ activo })
-        });
-        if (!res.ok) throw new Error();
-        await seccionCategorias(document.getElementById('tabContenido'));
-    } catch {
-        alert('Error al cambiar estado.');
-    }
-}
-
-// ─── EDS ──────────────────────────────────────────────────
-async function seccionEDS(c) {
-    cargando(c);
-    try {
-        const data = await fetch(`${API}/api/coordinador/eds`).then(r => r.json());
-
-        c.innerHTML = `
-            <div class="fade-in">
-                ${seccionHeader('Estaciones de Servicio (EDS)', '#1565C0')}
-
-                <div class="p-4 mb-6 bg-gray-50 rounded-xl border border-gray-200 max-w-2xl">
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Nueva EDS</p>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-                        <input id="eds_nombre" type="text" placeholder="Nombre *"
-                            class="border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
-                        <input id="eds_nit" type="text" placeholder="NIT"
-                            class="border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
-                        <input id="eds_direccion" type="text" placeholder="Dirección"
-                            class="border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"
-                            onkeypress="if(event.key==='Enter') agregarEDS()"/>
-                    </div>
-                    <button onclick="agregarEDS()"
-                        class="px-6 py-2.5 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition btn-navy">
-                        Agregar
-                    </button>
-                </div>
-                <span id="eds_msg" class="block text-sm font-medium mb-4"></span>
-
-                <div class="overflow-x-auto rounded-xl border border-gray-200">
-                    <table class="min-w-full">
-                        <thead>
-                            <tr style="background:#122B4F">
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Estación</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">NIT</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Dirección</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Estado</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Acción</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-100">
-                            ${data.map(eds => `
-                            <tr class="hover:bg-gray-50 transition text-sm">
-                                <td class="px-5 py-3 font-medium text-gray-800">${eds.nombre}</td>
-                                <td class="px-5 py-3 text-gray-600">${eds.NIT || '—'}</td>
-                                <td class="px-5 py-3 text-gray-600">${eds.direccion || '—'}</td>
-                                <td class="px-5 py-3">
-                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold
-                                        ${eds.existe ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}">
-                                        <span class="w-1.5 h-1.5 rounded-full ${eds.existe ? 'bg-green-500' : 'bg-gray-400'}"></span>
-                                        ${eds.existe ? 'Activa' : 'Inactiva'}
-                                    </span>
-                                </td>
-                                <td class="px-5 py-3">
-                                    <button onclick="toggleEDS(${eds.id}, ${eds.existe ? 0 : 1})"
-                                        class="px-3 py-1.5 rounded-lg text-xs font-semibold border transition
-                                        ${eds.existe
-                                            ? 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200'
-                                            : 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200'}">
-                                        ${eds.existe ? 'Desactivar' : 'Activar'}
-                                    </button>
-                                </td>
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>`;
-    } catch { errorHtml(c); }
-}
-
-async function agregarEDS() {
-    const nombre    = document.getElementById('eds_nombre')?.value?.trim();
-    const NIT       = document.getElementById('eds_nit')?.value?.trim();
-    const direccion = document.getElementById('eds_direccion')?.value?.trim();
-    if (!nombre) { notif('eds_msg', '✗ El nombre es obligatorio', 'err'); return; }
-
-    try {
-        const res = await fetch(`${API}/api/coordinador/eds`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ nombre, NIT, direccion })
-        });
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            notif('eds_msg', `✗ ${data.error || 'Error al agregar'}`, 'err');
-            return;
-        }
-        await seccionEDS(document.getElementById('tabContenido'));
-    } catch {
-        notif('eds_msg', '✗ Error al agregar', 'err');
-    }
-}
-
-async function toggleEDS(id, existe) {
-    try {
-        const res = await fetch(`${API}/api/coordinador/eds/${id}/estado`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ existe })
-        });
-        if (!res.ok) throw new Error();
-        await seccionEDS(document.getElementById('tabContenido'));
-    } catch {
-        alert('Error al cambiar estado.');
-    }
-}
-
 // ─── HORARIOS ─────────────────────────────────────────────
 
 function fmt(val) {
@@ -551,6 +353,120 @@ async function seccionHorarios(c) {
                 </div>
             </div>`;
     } catch { errorHtml(c); }
+}
+
+// ─── BUSCAR CASOS ────────────────────────────────────────────
+
+let _buscarTimer = null;
+
+async function seccionBuscar(c) {
+    c.innerHTML = `
+        <div class="fade-in">
+            ${seccionHeader('Buscar Casos 3CX', '#1565C0')}
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Número de Chat</label>
+                    <input id="bus_numero" type="text" inputmode="numeric" placeholder="Ej. 123456789"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Nombre EDS</label>
+                    <input id="bus_eds" type="text" placeholder="Ej. EDS Centro"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha Inicio</label>
+                    <input id="bus_fecha_ini" type="date"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha Fin</label>
+                    <input id="bus_fecha_fin" type="date"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+                </div>
+            </div>
+            <div id="bus_resultados">
+                <div class="text-center py-10 text-gray-400 text-sm">Escribe algo para buscar</div>
+            </div>
+        </div>`;
+
+    const debounce = () => {
+        clearTimeout(_buscarTimer);
+        _buscarTimer = setTimeout(ejecutarBusqueda, 350);
+    };
+
+    document.getElementById('bus_numero').addEventListener('input', debounce);
+    document.getElementById('bus_eds').addEventListener('input', debounce);
+    document.getElementById('bus_fecha_ini').addEventListener('change', ejecutarBusqueda);
+    document.getElementById('bus_fecha_fin').addEventListener('change', ejecutarBusqueda);
+}
+
+async function ejecutarBusqueda() {
+    const numero   = document.getElementById('bus_numero')?.value.trim();
+    const eds      = document.getElementById('bus_eds')?.value.trim();
+    const fechaIni = document.getElementById('bus_fecha_ini')?.value;
+    const fechaFin = document.getElementById('bus_fecha_fin')?.value;
+    const div      = document.getElementById('bus_resultados');
+    if (!div) return;
+
+    if (!numero && !eds && !fechaIni && !fechaFin) {
+        div.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">Escribe algo para buscar</div>';
+        return;
+    }
+
+    div.innerHTML = '<div class="text-center py-6 text-gray-400 text-sm">Buscando...</div>';
+
+    const qs = new URLSearchParams();
+    if (numero)   qs.set('numero', numero);
+    if (eds)      qs.set('nombreeds', eds);
+    if (fechaIni) qs.set('fechaini', fechaIni);
+    if (fechaFin) qs.set('fechafin', fechaFin);
+
+    try {
+        const data = await fetch(`${API}/api/coordinador/casos?${qs}`).then(r => r.json());
+
+        if (!data.length) {
+            div.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">Sin resultados</div>';
+            return;
+        }
+
+        div.innerHTML = `
+            <div class="overflow-x-auto rounded-xl border border-gray-200">
+                <table class="min-w-full text-sm">
+                    <thead>
+                        <tr style="background:#122B4F">
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Número Chat</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">EDS</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Fecha</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widests uppercase">Analista</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-100">
+                        ${data.map(c => {
+                            const fecha = new Date(c.fecha).toLocaleString('es-CO', {
+                                timeZone: 'America/Bogota',
+                                day: '2-digit', month: '2-digit', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit'
+                            });
+                            return `
+                            <tr class="hover:bg-blue-50 transition">
+                                <td class="px-4 py-3 text-gray-400 font-mono text-xs">#${c.id}</td>
+                                <td class="px-4 py-3 font-bold text-gray-800">${c.numerochat}</td>
+                                <td class="px-4 py-3 text-gray-600">${c.nombreEDS || '—'}</td>
+                                <td class="px-4 py-3 text-gray-500">${fecha}</td>
+                                <td class="px-4 py-3 text-gray-700">${c.nombre}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+                <div class="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">
+                    ${data.length} resultado${data.length !== 1 ? 's' : ''}
+                </div>
+            </div>`;
+    } catch {
+        div.innerHTML = '<div class="text-center py-10 text-red-400 text-sm">Error al buscar</div>';
+    }
 }
 
 // ─── IMPORTAR EXCEL ──────────────────────────────────────────

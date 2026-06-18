@@ -63,17 +63,13 @@
           class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
           🔄 Orden de Cola
         </button>
-        <button onclick="activarTab('categorias')" id="tab-categorias"
-          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
-          🏷️ Categorías
-        </button>
-        <button onclick="activarTab('eds')" id="tab-eds"
-          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
-          ⛽ Estaciones EDS
-        </button>
         <button onclick="activarTab('horarios')" id="tab-horarios"
           class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
           🕐 Horarios
+        </button>
+        <button onclick="activarTab('buscar')" id="tab-buscar"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
+          🔍 Buscar Casos
         </button>
         <button onclick="activarTab('importar')" id="tab-importar"
           class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 whitespace-nowrap">
@@ -95,7 +91,7 @@
   <script src="socket.io.min.js"></script>
   <script>
     function activarTab(tipo) {
-      ['analistas','orden','categorias','eds','horarios','importar'].forEach(t => {
+      ['analistas','orden','horarios','buscar','importar'].forEach(t => {
         document.getElementById('tab-' + t)?.classList.remove('active');
       });
       document.getElementById('tab-' + tipo)?.classList.add('active');

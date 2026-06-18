@@ -7,7 +7,7 @@ const getCasos = async (req, res) => {
 
     const result = await connection.request()
       .query(`
-        SELECT TOP 5 a.nombre, c.numerochat, c.fecha, c.id
+        SELECT TOP 5 a.nombre, c.numerochat, c.fecha, c.id, c.nombreEDS
         FROM casos3cx c
         JOIN analistas a ON c.idAnalista = a.id
         ORDER BY c.fecha DESC
@@ -26,7 +26,7 @@ const getCasos = async (req, res) => {
 
 const tomarCaso = async (req, res) => {
 
-  const numerochat = req.body?.numerochat;
+  const { numerochat, nombreEDS } = req.body;
 
   if (!numerochat) {
     return res.status(400).json({ error: 'numerochat es obligatorio' });
@@ -62,9 +62,10 @@ const tomarCaso = async (req, res) => {
     await request
       .input('idAnalista', sql.Int, analista.id)
       .input('numerochat', sql.Int, numerochat)
+      .input('nombreEDS',  sql.NVarChar, nombreEDS || null)
       .query(`
-        INSERT INTO casos3cx (idAnalista, numerochat, fecha)
-        VALUES (@idAnalista, @numerochat, GETDATE())
+        INSERT INTO casos3cx (idAnalista, numerochat, fecha, nombreEDS)
+        VALUES (@idAnalista, @numerochat, GETDATE(), @nombreEDS)
       `);
 
     // Ajustar orden
@@ -101,7 +102,7 @@ const tomarCaso = async (req, res) => {
 
     // Obtener el último caso insertado
     const nuevoCaso = await connection.request().query(`
-      SELECT TOP 1 a.nombre, a.activo, c.numerochat, c.fecha, c.id
+      SELECT TOP 1 a.nombre, a.activo, c.numerochat, c.fecha, c.id, c.nombreEDS
       FROM casos3cx c
       JOIN analistas a ON c.idAnalista = a.id
       ORDER BY c.id DESC

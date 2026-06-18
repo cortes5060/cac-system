@@ -261,6 +261,7 @@ function agregarFilaATabla(c) {
     fila.innerHTML = `
     <td class="px-4 py-3">${c.id}</td>
     <td class="px-4 py-3 font-semibold">${c.numerochat}</td>
+    <td class="px-4 py-3">${c.nombreEDS || '—'}</td>
     <td class="px-4 py-3">${fecha}</td>
     <td class="px-4 py-3">${c.nombre}</td>
   `;
@@ -308,6 +309,13 @@ async function mostrarModulo(tipo) {
                         placeholder="Número de chat 3CX"
                         class="w-full border border-gray-200 bg-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
                     />
+                    <input
+                        id="nombreEDS"
+                        type="text"
+                        placeholder="Nombre EDS (opcional)"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
+                    />
+                    <div id="errorChat" class="hidden text-xs text-red-500 font-medium px-1">El número debe tener más de 8 dígitos</div>
                     <button
                         onclick="tomarCaso()"
                         id="btnTomarCaso"
@@ -351,6 +359,7 @@ async function mostrarModulo(tipo) {
                 <tr style="background:#122B4F">
                 <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">ID</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Número Chat</th>
+                <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">EDS</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Fecha</th>
                 <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Analista</th>
                 </tr>
@@ -373,6 +382,7 @@ async function mostrarModulo(tipo) {
                     <tr class="hover:bg-blue-50 transition text-sm">
                     <td class="px-4 py-3 text-gray-400 font-mono text-xs">#${c.id}</td>
                     <td class="px-4 py-3 font-bold text-gray-800">${c.numerochat}</td>
+                    <td class="px-4 py-3 text-gray-600">${c.nombreEDS || '—'}</td>
                     <td class="px-4 py-3 text-gray-500">${fecha}</td>
                     <td class="px-4 py-3 text-gray-700">${c.nombre}</td>
                     </tr>
@@ -581,29 +591,32 @@ async function tomarCaso() {
 
     if (!analistaActual || analistaActual.orden != 1) return;
 
-    const input = document.getElementById("numeroChat");
-    const numero = input.value;
+    const input    = document.getElementById("numeroChat");
+    const errorEl  = document.getElementById("errorChat");
+    const numero   = input.value.trim();
 
-    if (!numero) {
+    if (!numero || numero.length <= 8) {
+        errorEl.classList.remove("hidden");
         input.focus();
         return;
     }
+
+    errorEl.classList.add("hidden");
+
+    const nombreEDS = document.getElementById("nombreEDS")?.value.trim() || null;
 
     try {
 
         const response = await fetch(`${API}/api/casos/tomar`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                numerochat: numero
-            })
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ numerochat: numero, nombreEDS })
         });
 
         if (!response.ok) throw new Error("Error tomando caso");
 
         input.value = "";
+        document.getElementById("nombreEDS").value = "";
         input.focus();
 
     } catch (error) {

@@ -3,10 +3,11 @@ const supervNombre = localStorage.getItem('supervNombre');
 if (!supervId) window.location.href = 'index.html';
 
 let mesActual, anioActual;
-let filtroAnalista = '', filtroEDS = '', filtroCategoria = '';
+let filtroAnalista = '', filtroEDS = '', filtroCategoria = '', filtroSubcat = '';
 let filtroGrupo = 0;  // 0 = General (todos los grupos)
 let _grupos = [];
-let buscEDS = null, buscCat = null;
+let _todasCategorias = [];
+let buscEDS = null, buscCat = null, buscSubcat = null;
 const charts = {};
 
 const PALETTE = ['#122B4F','#1565C0','#C41E3A','#1B5E20','#E65100','#6A1B9A','#00695C','#F57F17','#AD1457','#37474F'];
@@ -74,10 +75,11 @@ function buildPeriodoSelectors() {
   selAnio.addEventListener('change', () => { anioActual = parseInt(selAnio.value); cargarDashboard(); });
 }
 
-function crearBuscable({ inputId, listId, clearId, opciones, onSelect }) {
+function crearBuscable({ inputId, listId, clearId, opciones, onSelect, onClear }) {
   const input = document.getElementById(inputId);
   const list  = document.getElementById(listId);
   const clearBtn = document.getElementById(clearId);
+  let _opts = opciones;
 
   function norm(s) {
     return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -94,8 +96,8 @@ function crearBuscable({ inputId, listId, clearId, opciones, onSelect }) {
 
   function renderOpts(q) {
     const filtradas = q
-      ? opciones.filter(o => norm(o.label).includes(norm(q)))
-      : opciones;
+      ? _opts.filter(o => norm(o.label).includes(norm(q)))
+      : _opts;
 
     list.innerHTML = filtradas.length
       ? filtradas.map(o =>
@@ -125,8 +127,14 @@ function crearBuscable({ inputId, listId, clearId, opciones, onSelect }) {
     clear() {
       input.value = '';
       if (clearBtn) clearBtn.style.display = 'none';
-      onSelect('');
+      if (onClear) onClear(); else onSelect('');
       actualizarIndicadorFiltros();
+      list.classList.remove('open');
+    },
+    setOpciones(nuevas) {
+      _opts = nuevas;
+      input.value = '';
+      if (clearBtn) clearBtn.style.display = 'none';
       list.classList.remove('open');
     }
   };
@@ -181,10 +189,35 @@ async function cargarFiltros() {
       onSelect(v) { filtroEDS = v; actualizarIndicadorFiltros(); }
     });
 
+    _todasCategorias = categorias;
+
+    const principalesUnicas = [...new Set(
+      categorias.map(c => c.categoriaprincipal).filter(Boolean)
+    )].sort().map(p => ({ value: p, label: p }));
+
     buscCat = crearBuscable({
       inputId: 'fil-cat-input', listId: 'fil-cat-list', clearId: 'fil-cat-clear',
-      opciones: categorias.map(c => ({ value: String(c.id), label: c.nombre })),
-      onSelect(v) { filtroCategoria = v; actualizarIndicadorFiltros(); }
+      opciones: principalesUnicas,
+      onSelect(v) {
+        filtroCategoria = v;
+        filtroSubcat = '';
+        actualizarSubcatOpciones(v);
+        actualizarIndicadorFiltros();
+        cargarDashboard();
+      },
+      onClear() {
+        filtroCategoria = '';
+        filtroSubcat = '';
+        actualizarSubcatOpciones('');
+        actualizarIndicadorFiltros();
+        cargarDashboard();
+      }
+    });
+
+    buscSubcat = crearBuscable({
+      inputId: 'fil-subcat-input', listId: 'fil-subcat-list', clearId: 'fil-subcat-clear',
+      opciones: [],
+      onSelect(v) { filtroSubcat = v; actualizarIndicadorFiltros(); cargarDashboard(); }
     });
 
   } catch (e) {
@@ -192,16 +225,24 @@ async function cargarFiltros() {
   }
 }
 
+function actualizarSubcatOpciones(principal) {
+  const filtradas = principal
+    ? _todasCategorias.filter(c => c.categoriaprincipal === principal)
+    : _todasCategorias;
+  if (buscSubcat) buscSubcat.setOpciones(filtradas.map(c => ({ value: String(c.id), label: c.nombre })));
+}
+
 function actualizarIndicadorFiltros() {
-  const hayFiltros = filtroAnalista || filtroEDS || filtroCategoria;
+  const hayFiltros = filtroAnalista || filtroEDS || filtroCategoria || filtroSubcat;
   document.getElementById('filtros-activos')?.classList.toggle('hidden', !hayFiltros);
 }
 
 function limpiarFiltros() {
-  filtroAnalista = ''; filtroEDS = ''; filtroCategoria = '';
+  filtroAnalista = ''; filtroEDS = ''; filtroCategoria = ''; filtroSubcat = '';
   document.getElementById('fil-analista').value = '';
-  if (buscEDS) buscEDS.clear();
-  if (buscCat) buscCat.clear();
+  if (buscEDS)    buscEDS.clear();
+  if (buscCat)    buscCat.clear();
+  if (buscSubcat) { buscSubcat.clear(); actualizarSubcatOpciones(''); }
   actualizarIndicadorFiltros();
   cargarDashboard();
 }
@@ -283,7 +324,8 @@ async function cargarDashboard() {
     let qs = `mes=${mesActual}&anio=${anioActual}`;
     if (filtroAnalista)   qs += `&idAnalista=${filtroAnalista}`;
     if (filtroEDS)        qs += `&eds=${encodeURIComponent(filtroEDS)}`;
-    if (filtroCategoria)  qs += `&idCategoria=${filtroCategoria}`;
+    if (filtroCategoria)  qs += `&categoriaPrincipal=${encodeURIComponent(filtroCategoria)}`;
+    if (filtroSubcat)     qs += `&idCategoria=${filtroSubcat}`;
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,

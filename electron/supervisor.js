@@ -8,6 +8,7 @@ let filtroGrupo = 0;
 let _grupos = [];
 let _todasCategorias = [];
 let _todosTickets = [];
+let _tablaEDS = [], _tablaReincidencia = [], _tablaAltaPrioridad = [], _tablaEscaladosActivos = [];
 let buscEDS = null, buscCat = null, buscSubcat = null;
 const charts = {};
 
@@ -309,6 +310,128 @@ async function exportarReporte(formato) {
     btn.innerHTML = `<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Exportar <svg width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>`;
     btn.disabled = false;
   }
+}
+
+/* ── DESCARGA INDIVIDUAL ─────────────────────────────────────── */
+
+function _sufijoPeriodo() {
+  const mes = mesActual > 0 ? '_' + String(mesActual).padStart(2, '0') : '';
+  return `${anioActual}${mes}`;
+}
+
+function descargarChart(chartId, nombre) {
+  const ch = charts[chartId];
+  if (!ch) { alert('Sin datos para descargar.'); return; }
+  const src = ch.canvas;
+  const off = document.createElement('canvas');
+  off.width = src.width; off.height = src.height;
+  const ctx2 = off.getContext('2d');
+  ctx2.fillStyle = '#ffffff';
+  ctx2.fillRect(0, 0, off.width, off.height);
+  ctx2.drawImage(src, 0, 0);
+  const a = document.createElement('a');
+  a.download = `${nombre}_${_sufijoPeriodo()}.png`;
+  a.href = off.toDataURL('image/png');
+  a.click();
+}
+
+async function descargarSeccionHTML(elementId, nombre) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  try {
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', logging: false, useCORS: true });
+    const a = document.createElement('a');
+    a.download = `${nombre}_${_sufijoPeriodo()}.png`;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+  } catch (e) { console.error('Error capturando sección:', e); alert('Error al generar la imagen.'); }
+}
+
+function _exportarCSV(filas, columnas, nombre) {
+  if (!filas?.length) { alert('Sin datos para exportar.'); return; }
+  const bom = '﻿';
+  const header = columnas.map(c => `"${c.header}"`).join(',');
+  const rows = filas.map((f, i) => columnas.map(c => {
+    if (c.key === '#') return i + 1;
+    const val = (f[c.key] ?? '').toString().replace(/"/g, '""');
+    return `"${val}"`;
+  }).join(','));
+  const csv = bom + [header, ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.download = `${nombre}_${_sufijoPeriodo()}.csv`;
+  a.href = url; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportarRankingEDS() {
+  const gran = _tablaEDS.reduce((s, r) => s + r.total, 0) || 1;
+  const filas = _tablaEDS.map(r => ({ ...r, pct: Math.round(r.total / gran * 100) + '%' }));
+  _exportarCSV(filas, [
+    { header: '#', key: '#' },
+    { header: 'EDS', key: 'EDS' },
+    { header: 'Tickets', key: 'total' },
+    { header: '% del Total', key: 'pct' },
+  ], 'Ranking_EDS');
+}
+
+function exportarReincidencia() {
+  _exportarCSV(_tablaReincidencia, [
+    { header: '#', key: '#' },
+    { header: 'EDS', key: 'EDS' },
+    { header: 'Categoría Repetida', key: 'categoria' },
+    { header: 'Repeticiones', key: 'total' },
+  ], 'Reincidencia_EDS');
+}
+
+function exportarAltaPrioridad() {
+  _exportarCSV(_tablaAltaPrioridad, [
+    { header: '#', key: '#' },
+    { header: 'Antigüedad (días)', key: 'diasAbierto' },
+    { header: 'Código 2WD', key: 'codigo2wd' },
+    { header: 'Caso', key: 'casoAtendido' },
+    { header: 'EDS', key: 'EDS' },
+    { header: 'Creador', key: 'creador' },
+    { header: 'Responsable', key: 'escaladoA' },
+    { header: 'Estatus', key: 'estatus' },
+    { header: 'Registro', key: 'fechaRegistro' },
+  ], 'Alta_Prioridad_Activos');
+}
+
+function exportarEscaladosActivos() {
+  _exportarCSV(_tablaEscaladosActivos, [
+    { header: '#', key: '#' },
+    { header: 'Antigüedad (días)', key: 'diasAbierto' },
+    { header: 'Código 2WD', key: 'codigo2wd' },
+    { header: 'Caso', key: 'casoAtendido' },
+    { header: 'EDS', key: 'EDS' },
+    { header: 'Creador', key: 'creador' },
+    { header: 'Escalado a', key: 'escaladoA' },
+    { header: 'Grupo', key: 'grupo' },
+    { header: 'Estatus', key: 'estatus' },
+    { header: 'Prioridad', key: 'prioridad' },
+    { header: 'Registro', key: 'fechaRegistro' },
+  ], 'Escalados_Activos');
+}
+
+function exportarTodosTickets() {
+  const q = (document.getElementById('buscar-codigo')?.value || '').trim().toLowerCase();
+  const datos = q
+    ? _todosTickets.filter(t => (t.codigo2wd || '').toLowerCase().includes(q))
+    : _todosTickets;
+  _exportarCSV(datos, [
+    { header: '#', key: '#' },
+    { header: 'Código 2WD', key: 'codigo2wd' },
+    { header: 'Caso', key: 'casoAtendido' },
+    { header: 'Responsable', key: 'analista' },
+    { header: 'EDS', key: 'EDS' },
+    { header: 'Categoría', key: 'categoria' },
+    { header: 'Tipo', key: 'tipoCaso' },
+    { header: 'Estatus', key: 'estatus' },
+    { header: 'Prioridad', key: 'prioridad' },
+    { header: 'Registro', key: 'fechaRegistro' },
+  ], 'Todos_los_Tickets');
 }
 
 let _refreshTimer = null;
@@ -872,8 +995,9 @@ function filtrarTablaTickets() {
 }
 
 function renderTablaEDS(data) {
+  _tablaEDS = Array.isArray(data) ? data : [];
   const el = document.getElementById('tabla-eds');
-  if (!data.length) { el.innerHTML = sinDatos(); return; }
+  if (!_tablaEDS.length) { el.innerHTML = sinDatos(); return; }
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
       <thead>${tableHeader(['#', 'EDS', 'Tickets', '% del total'])}</thead>
@@ -941,14 +1065,16 @@ function renderChartEscalacion(canvasId, data, color) {
 }
 
 function renderTablaAltaPrioridad(data) {
+  _tablaAltaPrioridad = Array.isArray(data) ? data : [];
   const el = document.getElementById('tabla-alta-prioridad');
   const badge = document.getElementById('badge-alta-prio');
-  if (!data?.length) {
+  if (!_tablaAltaPrioridad.length) {
     if (badge) badge.textContent = '0';
     el.innerHTML = sinDatos();
     return;
   }
-  if (badge) badge.textContent = data.length;
+  if (badge) badge.textContent = _tablaAltaPrioridad.length;
+  data = _tablaAltaPrioridad;
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
       <thead>${tableHeader(['#', 'Antigüedad', 'Código 2WD', 'Caso', 'EDS', 'Creador', 'Responsable', 'Estatus', 'Registro'])}</thead>
@@ -972,14 +1098,16 @@ function renderTablaAltaPrioridad(data) {
 }
 
 function renderTablaEscaladosActivos(data) {
+  _tablaEscaladosActivos = Array.isArray(data) ? data : [];
   const el = document.getElementById('tabla-escalados-activos');
   const badge = document.getElementById('badge-escalados');
-  if (!data?.length) {
+  if (!_tablaEscaladosActivos.length) {
     if (badge) badge.textContent = '0';
     el.innerHTML = sinDatos();
     return;
   }
-  if (badge) badge.textContent = data.length;
+  if (badge) badge.textContent = _tablaEscaladosActivos.length;
+  data = _tablaEscaladosActivos;
   const pCol = { 'Alta': '#C41E3A', 'Media': '#E65100', 'Baja': '#1B5E20' };
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
@@ -1187,14 +1315,15 @@ function renderCargaActual(data) {
 /* ── REINCIDENCIA EDS ───────────────────────────────────────── */
 
 function renderReincidenciaEDS(data) {
+  _tablaReincidencia = Array.isArray(data) ? data : [];
   const el    = document.getElementById('tabla-reincidencia');
   const badge = document.getElementById('badge-reincidencia');
-  if (!data?.length) {
+  if (!_tablaReincidencia.length) {
     if (badge) badge.textContent = '0';
     el.innerHTML = `<p class="text-center text-gray-400 text-sm py-8">Sin EDS con incidencias repetidas en este período</p>`;
     return;
   }
-  if (badge) badge.textContent = `${data.length} combinaciones`;
+  if (badge) badge.textContent = `${_tablaReincidencia.length} combinaciones`;
 
   const reincBadge = n => {
     if (n >= 10) return `<span class="badge-tipo" style="background:#FEE2E2;color:#991B1B">${n}×</span>`;
@@ -1206,7 +1335,7 @@ function renderReincidenciaEDS(data) {
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
       <thead>${tableHeader(['#', 'EDS', 'Categoría Repetida', 'Repeticiones en el Período'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        ${data.map((r, i) => {
+        ${_tablaReincidencia.map((r, i) => {
           const rowBg = i % 2 === 0 ? '' : 'style="background:#FFFDF0"';
           return `
         <tr class="hover:bg-amber-50 transition" ${rowBg}>

@@ -171,10 +171,8 @@ const previewExcel = async (req, res) => {
       let escaladoMatch;
       if (responsableNom) {
         escaladoMatch = buscar(cat.analistas, responsableNom);
-      } else if (esCerrado) {
-        escaladoMatch = analistaMatch;        // cerrado sin responsable = no escalado
       } else {
-        escaladoMatch = cat.sinResponsable;   // abierto sin responsable = pendiente asignación
+        escaladoMatch = analistaMatch;
       }
 
       const tipoMatch      = buscar(cat.tiposCaso,  tipoNom);

@@ -298,36 +298,26 @@ const getMetricasEscalacion = async (req, res) => {
     const pw = periodoWhere(p,'t'), fw = filtroWhere(f,'t');
     const db = await pool;
 
+    const ESC = `t.idGrupoColaborador IS NOT NULL AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL AND t.escalado != t.idAnalista`;
+
     const [totalEscR, recibR, enviR, activosEscR] = await Promise.all([
-      // Total escalados (creador != responsable)
       mkReq(db,p,f).query(`
         SELECT COUNT(*) AS total FROM tickets t
-        WHERE ${pw}${fw}
-          AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
-          AND t.escalado != t.idAnalista`),
-      // Quiénes reciben más escalaciones
+        WHERE ${pw}${fw} AND ${ESC}`),
       mkReq(db,p,f).query(`
         SELECT TOP 8 a.nombre, COUNT(*) AS total
         FROM tickets t JOIN analistas a ON t.escalado = a.id
-        WHERE ${pw}${fw}
-          AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
-          AND t.escalado != t.idAnalista
+        WHERE ${pw}${fw} AND ${ESC}
         GROUP BY a.id, a.nombre ORDER BY total DESC`),
-      // Quiénes envían más escalaciones
       mkReq(db,p,f).query(`
         SELECT TOP 8 a.nombre, COUNT(*) AS total
         FROM tickets t JOIN analistas a ON t.idAnalista = a.id
-        WHERE ${pw}${fw}
-          AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
-          AND t.escalado != t.idAnalista
+        WHERE ${pw}${fw} AND ${ESC}
         GROUP BY a.id, a.nombre ORDER BY total DESC`),
-      // Escalados activos (no cerrados)
       mkReq(db,p,f).query(`
         SELECT COUNT(*) AS total FROM tickets t
         LEFT JOIN estatus e ON t.idEstatus = e.id
-        WHERE ${pw}${fw}
-          AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
-          AND t.escalado != t.idAnalista
+        WHERE ${pw}${fw} AND ${ESC}
           AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))`),
     ]);
 
@@ -361,8 +351,8 @@ const getTablaEscaladosActivos = async (req, res) => {
       LEFT JOIN prioridad  pr ON t.idPrioridad = pr.id
       LEFT JOIN gruposColaborador g ON t.idGrupoColaborador = g.id
       WHERE ${periodoWhere(p,'t')}${filtroWhere(f,'t')}
-        AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
-        AND t.escalado != t.idAnalista
+        AND t.idGrupoColaborador IS NOT NULL
+        AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL AND t.escalado != t.idAnalista
         AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))
       ORDER BY t.fechaHora ASC
     `);
@@ -421,23 +411,24 @@ const getPorDiaSemana = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-const getTasaResolucion = async (req, res) => {
+const getTiempoResolucion = async (req, res) => {
   try {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
       SELECT
         a.nombre,
-        COUNT(t.id) AS total,
-        SUM(CASE WHEN e.nombre = 'Cerrado' THEN 1 ELSE 0 END) AS cerrados
+        COUNT(t.id) AS cerrados,
+        ROUND(AVG(CAST(DATEDIFF(DAY, t.fechaHora, ISNULL(t.fechaCaso, t.fechaHora)) AS FLOAT)), 1) AS diasPromedio
       FROM tickets t
       JOIN analistas a ON ISNULL(t.escalado, t.idAnalista) = a.id
       LEFT JOIN estatus e ON t.idEstatus = e.id
       WHERE ${periodoWhere(p, 't')}${filtroWhere(f, 't')}
         AND a.idRol = 1
+        AND e.nombre = 'Cerrado'
       GROUP BY a.id, a.nombre
-      HAVING COUNT(t.id) >= 3
-      ORDER BY cerrados * 100.0 / COUNT(t.id) DESC
+      HAVING COUNT(t.id) >= 1
+      ORDER BY diasPromedio ASC
     `);
     res.json(result.recordset);
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -445,23 +436,25 @@ const getTasaResolucion = async (req, res) => {
 
 const getCargaActual = async (req, res) => {
   try {
-    const f = filtros(req);
-    const db = await pool;
-    const r  = db.request();
-    if (f.idGrupoColaborador) r.input('fGrp', sql.Int, f.idGrupoColaborador);
-    const fw = f.idGrupoColaborador ? ` AND t.idGrupoColaborador = @fGrp` : '';
+    const p = periodo(req), f = filtros(req);
+    const r = mkReq(await pool, p, f);
+    const pw = periodoWhere(p, 't');
+    const fw = filtroWhere(f, 't');
     const result = await r.query(`
       SELECT
         a.nombre,
         COUNT(t.id) AS activos,
         SUM(CASE WHEN pr.nombre = 'Alta' THEN 1 ELSE 0 END) AS altaPrio,
-        SUM(CASE WHEN t.escalado != t.idAnalista AND t.idAnalista IS NOT NULL THEN 1 ELSE 0 END) AS escalados
+        SUM(CASE WHEN t.idGrupoColaborador IS NOT NULL AND t.escalado IS NOT NULL
+                      AND t.idAnalista IS NOT NULL AND t.escalado != t.idAnalista
+             THEN 1 ELSE 0 END) AS escalados
       FROM tickets t
       JOIN analistas a ON ISNULL(t.escalado, t.idAnalista) = a.id
       LEFT JOIN estatus   e  ON t.idEstatus   = e.id
       LEFT JOIN prioridad pr ON t.idPrioridad = pr.id
-      WHERE a.idRol = 1 AND a.activo = 1 AND a.existe = 1
-        AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))${fw}
+      WHERE ${pw}${fw}
+        AND a.idRol = 1 AND a.activo = 1 AND a.existe = 1
+        AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))
       GROUP BY a.id, a.nombre
       HAVING COUNT(t.id) > 0
       ORDER BY activos DESC
@@ -497,6 +490,7 @@ const getCategoriasEscaladas = async (req, res) => {
       FROM tickets t
       JOIN categorias c ON t.idCategoria = c.id
       WHERE ${periodoWhere(p, 't')}${filtroWhere(f, 't')}
+        AND t.idGrupoColaborador IS NOT NULL
         AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL AND t.escalado != t.idAnalista
       GROUP BY c.id, c.nombre
       ORDER BY total DESC
@@ -505,11 +499,77 @@ const getCategoriasEscaladas = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
+const getMalEscaladosData = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const db = await pool;
+    const pw = periodoWhere(p, 't');
+    const fw = filtroWhere(f, 't');
+    const MAL = `t.escalado IS NULL AND t.idEstatus NOT IN (1, 2)`;
+
+    const [malR, activosR, diasR, porGrupoR, porCreadorR, tablaR] = await Promise.all([
+      mkReq(db,p,f).query(`SELECT COUNT(*) AS total FROM tickets t WHERE ${pw}${fw} AND ${MAL}`),
+      mkReq(db,p,f).query(`SELECT COUNT(*) AS total FROM tickets t WHERE ${pw}${fw} AND t.idEstatus NOT IN (1, 2)`),
+      mkReq(db,p,f).query(`
+        SELECT ROUND(AVG(CAST(DATEDIFF(DAY, t.fechaHora, GETDATE()) AS FLOAT)), 1) AS promedio
+        FROM tickets t WHERE ${pw}${fw} AND ${MAL}`),
+      mkReq(db,p,f).query(`
+        SELECT ISNULL(g.nombre, 'Sin grupo') AS grupo, COUNT(*) AS total
+        FROM tickets t
+        LEFT JOIN gruposColaborador g ON t.idGrupoColaborador = g.id
+        WHERE ${pw}${fw} AND ${MAL}
+        GROUP BY g.id, g.nombre ORDER BY total DESC`),
+      mkReq(db,p,f).query(`
+        SELECT ISNULL(a.nombre, '—') AS creador, COUNT(*) AS total
+        FROM tickets t
+        LEFT JOIN analistas a ON t.idAnalista = a.id
+        WHERE ${pw}${fw} AND ${MAL}
+        GROUP BY a.id, a.nombre ORDER BY total DESC`),
+      mkReq(db,p,f).query(`
+        SELECT TOP 300
+          t.codigo2wd, t.casoAtendido,
+          ISNULL(cr.nombre,  '—') AS creador,
+          ISNULL(gc2.nombre, '—') AS grupoCreador,
+          ISNULL(gc.nombre,  '—') AS grupoTicket,
+          ISNULL(e.nombre,   '—') AS estatus,
+          FORMAT(t.fechaHora, 'dd/MM/yyyy HH:mm') AS fechaRegistro,
+          DATEDIFF(DAY, t.fechaHora, GETDATE()) AS diasAbierto,
+          CASE
+            WHEN cr.idGrupoColaborador IS NULL OR t.idGrupoColaborador IS NULL THEN 'Sin grupo asignado'
+            WHEN cr.idGrupoColaborador = t.idGrupoColaborador THEN 'Mismo grupo'
+            ELSE 'Grupo diferente'
+          END AS tipoEscalado
+        FROM tickets t
+        LEFT JOIN analistas         cr  ON t.idAnalista         = cr.id
+        LEFT JOIN gruposColaborador gc  ON t.idGrupoColaborador = gc.id
+        LEFT JOIN gruposColaborador gc2 ON cr.idGrupoColaborador = gc2.id
+        LEFT JOIN estatus           e   ON t.idEstatus          = e.id
+        WHERE ${pw}${fw} AND ${MAL}
+        ORDER BY t.fechaHora ASC`),
+    ]);
+
+    const totalMal    = malR.recordset[0].total;
+    const totalActivos = activosR.recordset[0].total || 1;
+
+    res.json({
+      kpis: {
+        totalMalEscalados: totalMal,
+        pctSobreActivos:   Math.round(totalMal / totalActivos * 100),
+        diasPromedio:      Math.round(diasR.recordset[0].promedio || 0),
+      },
+      porGrupo:   porGrupoR.recordset,
+      porCreador: porCreadorR.recordset,
+      tabla:      tablaR.recordset,
+    });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+};
+
 module.exports = {
   getKPIs, getTicketsPorAnalista, getTopCategorias, getTicketsPorDia,
   getDistribucionTipo, getDistribucionEstatus, getDistribucionPrioridad,
   getHeatmapEDS, getUltimosTickets, getRankingEDS,
   getTopAltaPrioridad, getMetricasEscalacion, getTablaEscaladosActivos,
-  getComparacion, getPorDiaSemana, getTasaResolucion,
+  getComparacion, getPorDiaSemana, getTiempoResolucion,
   getCargaActual, getReincidenciaEDS, getCategoriasEscaladas,
+  getMalEscaladosData,
 };

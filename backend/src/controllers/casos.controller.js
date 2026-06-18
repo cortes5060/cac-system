@@ -61,7 +61,7 @@ const tomarCaso = async (req, res) => {
     // Insertar caso
     await request
       .input('idAnalista', sql.Int, analista.id)
-      .input('numerochat', sql.Int, numerochat)
+      .input('numerochat', sql.VarChar(50), numerochat)
       .input('nombreEDS',  sql.NVarChar, nombreEDS || null)
       .query(`
         INSERT INTO casos3cx (idAnalista, numerochat, fecha, nombreEDS)
@@ -127,7 +127,77 @@ const tomarCaso = async (req, res) => {
 };
 
 
+const deshacerCaso = async (req, res) => {
+
+  const { idAnalista } = req.body;
+
+  if (!idAnalista) {
+    return res.status(400).json({ error: 'idAnalista es obligatorio' });
+  }
+
+  const connection = await pool;
+  const transaction = new sql.Transaction(connection);
+
+  try {
+
+    await transaction.begin();
+    const request = new sql.Request(transaction);
+
+    // Verificar que el analista es el último en cola
+    const colaResult = await request
+      .input('idA', sql.Int, idAnalista)
+      .query(`
+        SELECT a.orden,
+               (SELECT COUNT(*) FROM analistas WHERE activo = 1) AS total
+        FROM analistas a
+        WHERE a.id = @idA AND a.activo = 1
+      `);
+
+    if (!colaResult.recordset.length) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Analista no encontrado o inactivo' });
+    }
+
+    const { orden, total } = colaResult.recordset[0];
+
+    if (orden !== total) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Solo el último en cola puede deshacer' });
+    }
+
+    // Subir a todos los demás 1 posición en la cola
+    await request
+      .input('idA3', sql.Int, idAnalista)
+      .query(`
+        UPDATE analistas
+        SET orden = orden + 1
+        WHERE activo = 1 AND id <> @idA3
+      `);
+
+    // Poner al analista en primer lugar
+    await request
+      .input('idA4', sql.Int, idAnalista)
+      .query(`UPDATE analistas SET orden = 1 WHERE id = @idA4`);
+
+    await transaction.commit();
+
+    const io = req.app.get("io");
+    io.emit("casoDeshacho", { idAnalista });
+
+    res.json({ ok: true });
+
+  } catch (error) {
+
+    await transaction.rollback();
+    console.error(error);
+    res.status(500).json({ error: 'Error al deshacer el caso' });
+
+  }
+};
+
+
 module.exports = {
   tomarCaso,
-  getCasos
+  getCasos,
+  deshacerCaso
 };

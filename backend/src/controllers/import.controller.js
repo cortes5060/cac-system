@@ -40,7 +40,7 @@ const fmtDateTime = d => d ? d.toISOString().replace('T', ' ').slice(0, 19) : nu
 
 async function cargarCatalogos(db) {
   const [a, c, t, e, p, g, s] = await Promise.all([
-    db.request().query(`SELECT id, nombre FROM analistas WHERE idRol = 1`),
+    db.request().query(`SELECT id, nombre, idGrupoColaborador FROM analistas WHERE idRol = 1`),
     db.request().query(`SELECT id, nombre FROM categorias`),
     db.request().query(`SELECT id, nombre FROM tiposCaso`),
     db.request().query(`SELECT id, nombre FROM estatus`),
@@ -166,19 +166,33 @@ const previewExcel = async (req, res) => {
         ? buscar(cat.analistas, creadoPorNom)
         : null;
 
-      const estatusMatch   = buscar(cat.estatus,    estatusNom);
-      const esCerrado      = ['cerrado','cancelado'].includes(norm(estatusNom));
+      const estatusMatch = buscar(cat.estatus, estatusNom);
+      const esCerrado    = estatusMatch?.id === 1 || estatusMatch?.id === 2;
+
+      // Resolver escalado
       let escaladoMatch;
       if (responsableNom) {
         escaladoMatch = buscar(cat.analistas, responsableNom);
-      } else {
+      } else if (esCerrado) {
         escaladoMatch = analistaMatch;
+      } else {
+        escaladoMatch = null; // mal escalado: activo sin responsable
+      }
+
+      const malEscalado = !responsableNom && !esCerrado;
+
+      // Resolver grupo: Excel → grupo del responsable → grupo del creador
+      let grupoMatch = buscar(cat.grupos, grupoNom);
+      if (!grupoMatch) {
+        const fuenteGrupo = escaladoMatch || analistaMatch;
+        if (fuenteGrupo?.idGrupoColaborador) {
+          grupoMatch = cat.grupos.find(g => g.id === fuenteGrupo.idGrupoColaborador) || null;
+        }
       }
 
       const tipoMatch      = buscar(cat.tiposCaso,  tipoNom);
       const catMatch       = buscar(cat.categorias, catNom);
       const prioridadMatch = buscar(cat.prioridad,  prioridadNom);
-      const grupoMatch     = buscar(cat.grupos,     grupoNom);
 
       const errores = [];
       if (!titulo) errores.push('Sin título (TÍTULO vacío)');
@@ -232,6 +246,7 @@ const previewExcel = async (req, res) => {
         estatusNom,
         prioridadNom,
         grupoNom,
+        malEscalado,
         accion,
         estado:             errores.length ? 'advertencia' : 'ok',
         camposModificados,
@@ -336,8 +351,9 @@ const confirmarImport = async (req, res) => {
 
       try {
         if (f.accion === 'insertar') {
-          const idAna = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
-          const idEsc = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? idAna;
+          const idAna     = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
+          const esCerrado = [1, 2].includes(f.idEstatus);
+          const idEsc     = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? (esCerrado ? idAna : null);
           await db.request()
             .input('casoAtendido',        sql.NVarChar, f.casoAtendido       || null)
             .input('EDS',                 sql.NVarChar, f.eds                || null)
@@ -372,8 +388,9 @@ const confirmarImport = async (req, res) => {
           insertados++;
 
         } else if (f.accion === 'actualizar' && f.codigo2wd) {
-          const idAna = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
-          const idEsc = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? idAna;
+          const idAna     = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
+          const esCerrado = [1, 2].includes(f.idEstatus);
+          const idEsc     = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? (esCerrado ? idAna : null);
           const sets = [];
           const r = db.request().input('codigo', sql.NVarChar, f.codigo2wd);
 

@@ -15,10 +15,11 @@ const {
   getTablaEscaladosActivos,
   getComparacion,
   getPorDiaSemana,
-  getTasaResolucion,
+  getTiempoResolucion,
   getCargaActual,
   getReincidenciaEDS,
   getCategoriasEscaladas,
+  getMalEscaladosData,
 } = require('../controllers/supervisor.controller');
 
 const router = Router();
@@ -38,9 +39,10 @@ router.get('/metricas-escalacion',    getMetricasEscalacion);
 router.get('/escalados-activos',      getTablaEscaladosActivos);
 router.get('/comparacion',            getComparacion);
 router.get('/por-dia-semana',         getPorDiaSemana);
-router.get('/tasa-resolucion',        getTasaResolucion);
+router.get('/tiempo-resolucion',      getTiempoResolucion);
 router.get('/carga-actual',           getCargaActual);
 router.get('/reincidencia-eds',       getReincidenciaEDS);
 router.get('/categorias-escaladas',   getCategoriasEscaladas);
+router.get('/mal-escalados',          getMalEscaladosData);
 
 module.exports = router;

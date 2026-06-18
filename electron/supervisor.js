@@ -8,7 +8,7 @@ let filtroGrupo = 0;
 let _grupos = [];
 let _todasCategorias = [];
 let _todosTickets = [];
-let _tablaEDS = [], _tablaReincidencia = [], _tablaAltaPrioridad = [], _tablaEscaladosActivos = [];
+let _tablaEDS = [], _tablaReincidencia = [], _tablaAltaPrioridad = [], _tablaEscaladosActivos = [], _tablaMalEscalados = [];
 let buscEDS = null, buscCat = null, buscSubcat = null;
 const charts = {};
 
@@ -454,7 +454,8 @@ async function cargarDashboard() {
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,
            ultimos, eds, metEsc, altaPrio, escActivos,
-           comparacion, diaSemana, tasaRes, cargaActual, reincidencia, catEscaladas] =
+           comparacion, diaSemana, tasaRes, cargaActual, reincidencia, catEscaladas,
+           malEscalados] =
       await Promise.all([
         fetch(`${API}/api/supervisor/kpis?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tickets-analista?${qs}`).then(r => r.json()),
@@ -470,10 +471,11 @@ async function cargarDashboard() {
         fetch(`${API}/api/supervisor/escalados-activos?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/comparacion?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/por-dia-semana?${qs}`).then(r => r.json()),
-        fetch(`${API}/api/supervisor/tasa-resolucion?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/tiempo-resolucion?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/carga-actual?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/reincidencia-eds?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/categorias-escaladas?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/mal-escalados?${qs}`).then(r => r.json()),
       ]);
 
     renderKPIs(kpis);
@@ -483,7 +485,7 @@ async function cargarDashboard() {
     renderChartCategorias(topCat);
     renderChartDias(porDia);
     renderChartDiaSemana(diaSemana);
-    renderChartTasaResolucion(tasaRes);
+    renderChartTiempoResolucion(tasaRes);
     renderChartTipos(distTipo);
     renderChartEstatus(distEstatus);
     renderChartPrioridad(distPrioridad);
@@ -496,6 +498,7 @@ async function cargarDashboard() {
     renderChartEscalacion('chart-esc-envian',  metEsc.envian,  '#E65100');
     renderTablaAltaPrioridad(altaPrio);
     renderTablaEscaladosActivos(escActivos);
+    renderMalEscalados(malEscalados);
     renderTablaUltimos(ultimos);
 
   } catch (e) {
@@ -1233,20 +1236,14 @@ function renderChartDiaSemana(data) {
 
 /* ── TASA DE RESOLUCIÓN ─────────────────────────────────────── */
 
-function renderChartTasaResolucion(data) {
+function renderChartTiempoResolucion(data) {
   destroyChart('chart-tasa-resolucion');
   if (!data?.length) return;
 
-  const sorted = [...data].sort((a, b) => {
-    const ta = a.total > 0 ? a.cerrados / a.total : 0;
-    const tb = b.total > 0 ? b.cerrados / b.total : 0;
-    return ta - tb;
-  });
-
-  const labels = sorted.map(d => d.nombre);
-  const values = sorted.map(d => d.total > 0 ? Math.round(d.cerrados / d.total * 100) : 0);
+  const labels = data.map(d => d.nombre);
+  const values = data.map(d => d.diasPromedio);
   const colors = values.map(v =>
-    v >= 80 ? '#1B5E20' : v >= 60 ? '#4CAF50' : v >= 40 ? '#F59E0B' : '#C41E3A'
+    v <= 3 ? '#1B5E20' : v <= 7 ? '#F59E0B' : v <= 14 ? '#E65100' : '#C41E3A'
   );
 
   charts['chart-tasa-resolucion'] = new Chart(document.getElementById('chart-tasa-resolucion'), {
@@ -1263,22 +1260,21 @@ function renderChartTasaResolucion(data) {
         tooltip: {
           callbacks: {
             label: ctx => {
-              const d = sorted[ctx.dataIndex];
-              return ` ${ctx.parsed.x}%  (${d.cerrados} cerrados / ${d.total} asignados)`;
+              const d = data[ctx.dataIndex];
+              return ` ${ctx.parsed.x} días promedio (${d.cerrados} cerrado${d.cerrados !== 1 ? 's' : ''})`;
             }
           }
         }
       },
       scales: {
         x: {
-          min: 0, max: 100,
           grid: { color: '#F3F4F6' },
-          ticks: { font: { size: 11 }, callback: v => v + '%' }
+          ticks: { font: { size: 11 }, callback: v => v + 'd' }
         },
         y: { grid: { display: false }, ticks: { font: { size: 11 } } }
       }
     },
-    plugins: [noDataPlugin('Sin analistas con 3+ tickets en este período')]
+    plugins: [noDataPlugin('Sin tickets cerrados en este período')]
   });
 }
 
@@ -1385,6 +1381,165 @@ function renderChartCategoriasEscaladas(data) {
     },
     plugins: [noDataPlugin('Sin escalaciones en este período')]
   });
+}
+
+/* ── MAL ESCALADOS ──────────────────────────────────────────── */
+
+function renderMalEscalados(data) {
+  if (!data || data.error) return;
+  renderMalEscaladosKPIs(data.kpis);
+  renderChartMalPorGrupo(data.porGrupo);
+  renderChartMalPorCreador(data.porCreador);
+  renderTablaMalEscalados(data.tabla);
+}
+
+function renderMalEscaladosKPIs(k) {
+  const el = document.getElementById('kpi-mal-escalados');
+  if (!el || !k) return;
+
+  const badge = document.getElementById('badge-mal-escalados');
+  if (badge) {
+    badge.textContent = k.totalMalEscalados;
+    badge.style.background = k.totalMalEscalados > 0 ? '#FEE2E2' : '#DCFCE7';
+    badge.style.color       = k.totalMalEscalados > 0 ? '#991B1B' : '#166534';
+  }
+
+  const defs = [
+    {
+      label: 'Sin Responsable',
+      value: k.totalMalEscalados,
+      sub: 'tickets activos sin asignar',
+      color: '#DC2626', bg: '#FEF2F2',
+      icon: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+    },
+    {
+      label: '% sobre Activos',
+      value: k.pctSobreActivos + '%',
+      sub: 'del total de tickets activos',
+      color: '#B45309', bg: '#FFFBEB',
+      icon: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+    },
+    {
+      label: 'Días Promedio Abierto',
+      value: k.diasPromedio,
+      sub: 'sin responsable asignado',
+      color: '#7C3AED', bg: '#F5F3FF',
+      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    },
+  ];
+
+  el.innerHTML = defs.map(d => `
+    <div class="kpi-card p-5 border-l-4 fade-in" style="border-left-color:${d.color}">
+      <div class="flex items-start justify-between mb-3">
+        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest leading-tight">${d.label}</p>
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:${d.bg}">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${d.color}" stroke-width="2">${d.icon}</svg>
+        </div>
+      </div>
+      <p class="font-black text-gray-800 leading-tight mb-1" style="font-size:1.75rem">${d.value}</p>
+      <p class="text-xs text-gray-400">${d.sub}</p>
+    </div>`).join('');
+}
+
+function renderChartMalPorGrupo(data) {
+  destroyChart('chart-mal-por-grupo');
+  if (!data?.length) return;
+  const labels = data.map(d => d.grupo);
+  const values = data.map(d => d.total);
+  const colors = Array.from({ length: labels.length }, (_, i) => {
+    const t = labels.length > 1 ? i / (labels.length - 1) : 0;
+    return lerpHex('#7F1D1D', '#FCA5A5', t);
+  });
+  charts['chart-mal-por-grupo'] = new Chart(document.getElementById('chart-mal-por-grupo'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 5, borderSkipped: false }] },
+    options: {
+      ...BASE_OPTS, indexAxis: 'y',
+      plugins: { ...BASE_OPTS.plugins, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} tickets` } } },
+      scales: {
+        x: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 11 }, stepSize: 1 } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    },
+    plugins: [noDataPlugin('Sin datos')]
+  });
+}
+
+function renderChartMalPorCreador(data) {
+  destroyChart('chart-mal-por-creador');
+  if (!data?.length) return;
+  const labels = data.map(d => d.creador);
+  const values = data.map(d => d.total);
+  const colors = Array.from({ length: labels.length }, (_, i) => {
+    const t = labels.length > 1 ? i / (labels.length - 1) : 0;
+    return lerpHex('#78350F', '#FCD34D', t);
+  });
+  charts['chart-mal-por-creador'] = new Chart(document.getElementById('chart-mal-por-creador'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 5, borderSkipped: false }] },
+    options: {
+      ...BASE_OPTS, indexAxis: 'y',
+      plugins: { ...BASE_OPTS.plugins, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x} tickets` } } },
+      scales: {
+        x: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 11 }, stepSize: 1 } },
+        y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+      }
+    },
+    plugins: [noDataPlugin('Sin datos')]
+  });
+}
+
+const TIPO_ESC_STYLE = {
+  'Mismo grupo':        { bg: '#DBEAFE', color: '#1D4ED8' },
+  'Grupo diferente':    { bg: '#FEE2E2', color: '#991B1B' },
+  'Sin grupo asignado': { bg: '#F3F4F6', color: '#6B7280' },
+};
+
+function renderTablaMalEscalados(data) {
+  _tablaMalEscalados = Array.isArray(data) ? data : [];
+  const el = document.getElementById('tabla-mal-escalados');
+  if (!el) return;
+  if (!_tablaMalEscalados.length) { el.innerHTML = `<p class="text-center text-gray-400 text-sm py-8">Sin tickets mal escalados — ¡todo en orden!</p>`; return; }
+
+  el.innerHTML = `
+    <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
+      <thead>${tableHeader(['#', 'Antigüedad', 'Código 2WD', 'Caso', 'Creador', 'Grupo Creador', 'Grupo Ticket', 'Tipo', 'Estatus', 'Registro'])}</thead>
+      <tbody class="bg-white divide-y divide-gray-100">
+        ${_tablaMalEscalados.map((t, i) => {
+          const style = TIPO_ESC_STYLE[t.tipoEscalado] || TIPO_ESC_STYLE['Sin grupo asignado'];
+          const rowBg = i % 2 === 0 ? '' : 'style="background:#FFFAFA"';
+          return `
+        <tr class="hover:bg-red-50 transition" ${rowBg}>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs">${i + 1}</td>
+          <td class="px-4 py-3 whitespace-nowrap">${diasBadge(t.diasAbierto)}</td>
+          <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido || '—'}</td>
+          <td class="px-4 py-3 text-gray-600 text-sm whitespace-nowrap">${t.creador}</td>
+          <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">${t.grupoCreador}</td>
+          <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">${t.grupoTicket}</td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="badge-tipo" style="background:${style.bg};color:${style.color}">${t.tipoEscalado}</span>
+          </td>
+          <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
+          <td class="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
+        </tr>`; }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function exportarMalEscalados() {
+  _exportarCSV(_tablaMalEscalados, [
+    { header: '#',              key: '#' },
+    { header: 'Antigüedad (d)', key: 'diasAbierto' },
+    { header: 'Código 2WD',    key: 'codigo2wd' },
+    { header: 'Caso',          key: 'casoAtendido' },
+    { header: 'Creador',       key: 'creador' },
+    { header: 'Grupo Creador', key: 'grupoCreador' },
+    { header: 'Grupo Ticket',  key: 'grupoTicket' },
+    { header: 'Tipo Escalado', key: 'tipoEscalado' },
+    { header: 'Estatus',       key: 'estatus' },
+    { header: 'Registro',      key: 'fechaRegistro' },
+  ], 'Tickets_Mal_Escalados');
 }
 
 function sinDatos() {

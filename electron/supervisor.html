@@ -370,13 +370,13 @@
           </div>
           <div>
             <div class="flex items-center justify-between mb-1">
-              <p class="section-title mb-0">Tasa de Resolución por Analista</p>
-              <button class="btn-dl" onclick="descargarChart('chart-tasa-resolucion','Tasa_Resolucion')" title="Descargar imagen PNG">
+              <p class="section-title mb-0">Tiempo Promedio de Resolución por Analista</p>
+              <button class="btn-dl" onclick="descargarChart('chart-tasa-resolucion','Tiempo_Resolucion')" title="Descargar imagen PNG">
                 <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 PNG
               </button>
             </div>
-            <p class="text-xs text-gray-400 mb-3">Tickets cerrados / asignados en el período (mín. 3 tickets)</p>
+            <p class="text-xs text-gray-400 mb-3">Días promedio desde registro hasta cierre (verde ≤3d, amarillo ≤7d, naranja ≤14d, rojo >14d)</p>
             <div style="position:relative;height:200px"><canvas id="chart-tasa-resolucion"></canvas></div>
           </div>
         </div>
@@ -436,7 +436,7 @@
         <div class="sec-label">
           <div class="sec-accent" style="background:#C41E3A"></div>
           <span class="sec-title-text">Carga Actual por Analista</span>
-          <span class="sec-badge" id="badge-carga">Tiempo real</span>
+          <span class="sec-badge" id="badge-carga">Período</span>
         </div>
         <div class="flex items-center gap-2">
           <button class="btn-dl" onclick="event.stopPropagation();descargarSeccionHTML('carga-grid','Carga_Actual')" title="Descargar imagen PNG">
@@ -449,8 +449,66 @@
         </div>
       </div>
       <div class="sec-body p-6">
-        <p class="text-xs text-gray-400 mb-4">Tickets activos <strong>ahora mismo</strong> (no cerrados ni cancelados), independiente del período seleccionado.</p>
+        <p class="text-xs text-gray-400 mb-4">Tickets activos (no cerrados ni cancelados) del <strong>período seleccionado</strong>, agrupados por responsable.</p>
         <div id="carga-grid" class="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4"></div>
+      </div>
+    </div>
+
+    <!-- ── TICKETS MAL ESCALADOS ────────────────────────────────── -->
+    <div class="sec-card" id="sec-mal-escalados">
+      <div class="sec-header" onclick="toggleSec('sec-mal-escalados')">
+        <div class="sec-label">
+          <div class="sec-accent" style="background:#DC2626"></div>
+          <span class="sec-title-text">Tickets Mal Escalados</span>
+          <span id="badge-mal-escalados" class="sec-badge" style="background:#FEE2E2;color:#991B1B">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn-dl xl" onclick="event.stopPropagation();exportarMalEscalados()" title="Exportar a Excel">
+            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Excel
+          </button>
+          <svg class="sec-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      </div>
+      <div class="sec-body p-6 space-y-6">
+        <p class="text-xs text-gray-400 -mt-2">Tickets activos (no cerrados ni cancelados) del <strong>período seleccionado</strong> que no tienen responsable asignado.</p>
+
+        <!-- KPIs -->
+        <div id="kpi-mal-escalados" class="grid grid-cols-1 lg:grid-cols-3 gap-4"></div>
+
+        <!-- Gráficas -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <p class="section-title mb-0">Por Grupo del Ticket</p>
+              <button class="btn-dl" onclick="descargarChart('chart-mal-por-grupo','Mal_Escalados_por_Grupo')" title="Descargar PNG">
+                <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                PNG
+              </button>
+            </div>
+            <div style="position:relative;height:240px"><canvas id="chart-mal-por-grupo"></canvas></div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <p class="section-title mb-0">Por Creador</p>
+              <button class="btn-dl" onclick="descargarChart('chart-mal-por-creador','Mal_Escalados_por_Creador')" title="Descargar PNG">
+                <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                PNG
+              </button>
+            </div>
+            <div style="position:relative;height:240px"><canvas id="chart-mal-por-creador"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Tabla detalle -->
+        <div>
+          <p class="section-title">Detalle de Tickets sin Responsable</p>
+          <div class="tabla-scroll" style="max-height:440px">
+            <div id="tabla-mal-escalados"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -638,6 +696,7 @@
   </main>
 
   <script src="config.js"></script>
+  <script src="server-monitor.js"></script>
   <script src="socket.io.min.js"></script>
   <script>
     try { var socket = io(API); } catch(e) { console.warn('Socket no disponible:', e); }

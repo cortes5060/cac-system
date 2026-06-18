@@ -5,6 +5,7 @@ const socket = io(API);
 let analistaActual = null;
 let idActual = null;
 let ordenActual = null;
+let totalAnalistasActivos = 0;
 
 /* ============================= */
 /* SOCKET                        */
@@ -30,6 +31,11 @@ socket.on("nuevoCaso3CX", (caso) => {
 
     const input = document.getElementById("numeroChat");
     if (input) input.focus();
+});
+
+socket.on("casoDeshacho", () => {
+    cargarAnalistasActivos();
+    cargarAnalistaSeleccionado();
 });
 
 /* ============================= */
@@ -75,6 +81,7 @@ async function cargarAnalistaSeleccionado() {
         actualizarEstadoVisual(analistaActual.activo);
         cargarAnalistasActivos();
         actualizarEstadoBoton();
+        actualizarEstadoBotonDeshacer();
 
     } catch (error) {
         console.error("Error:", error.message);
@@ -201,6 +208,9 @@ async function cargarAnalistasActivos() {
             .filter(a => a.activo == 1)
             .sort((a, b) => a.orden - b.orden);
 
+        totalAnalistasActivos = activosOrdenados.length;
+        actualizarEstadoBotonDeshacer();
+
         activosOrdenados.forEach((a, index) => {
 
             const div = document.createElement("div");
@@ -321,6 +331,13 @@ async function mostrarModulo(tipo) {
                         id="btnTomarCaso"
                         class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-semibold text-sm transition">
                         Registrar Caso
+                    </button>
+                    <button
+                        onclick="deshacerCaso()"
+                        id="btnDeshacerCaso"
+                        disabled
+                        class="w-full py-2.5 rounded-xl font-semibold text-sm transition bg-gray-200 text-gray-400 cursor-not-allowed">
+                        ↩ Deshacer último caso
                     </button>
                 </div>
             </div>
@@ -643,6 +660,79 @@ function actualizarEstadoBoton() {
         boton.classList.remove("bg-blue-600", "hover:bg-blue-700");
         boton.classList.add("bg-gray-400", "cursor-not-allowed");
 
+    }
+}
+
+function actualizarEstadoBotonDeshacer() {
+
+    const boton = document.getElementById("btnDeshacerCaso");
+
+    if (!boton || !analistaActual) return;
+
+    const esUltimo = totalAnalistasActivos > 1 && analistaActual.orden == totalAnalistasActivos;
+
+    if (esUltimo) {
+
+        boton.disabled = false;
+        boton.classList.remove("bg-gray-200", "text-gray-400", "cursor-not-allowed");
+        boton.classList.add("bg-amber-100", "text-amber-700", "hover:bg-amber-200");
+
+    } else {
+
+        boton.disabled = true;
+        boton.classList.remove("bg-amber-100", "text-amber-700", "hover:bg-amber-200");
+        boton.classList.add("bg-gray-200", "text-gray-400", "cursor-not-allowed");
+
+    }
+}
+
+async function deshacerCaso() {
+
+    if (!analistaActual || analistaActual.orden !== totalAnalistasActivos || totalAnalistasActivos <= 1) return;
+
+    try {
+
+        const response = await fetch(`${API}/api/casos/deshacer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ idAnalista: analistaActual.id })
+        });
+
+        if (!response.ok) throw new Error("Error deshaciendo caso");
+
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+async function recargarTablaCasos() {
+
+    try {
+
+        const response = await fetch(`${API}/api/casos/lista`);
+        const casos = await response.json();
+        const tbody = document.querySelector("#tablaCasos table tbody");
+
+        if (!tbody) return;
+
+        tbody.innerHTML = casos.map(c => {
+            const fecha = new Date(c.fecha).toLocaleString("es-CO", {
+                timeZone: "America/Bogota",
+                hour: "2-digit", minute: "2-digit",
+                day: "2-digit", month: "2-digit", year: "numeric"
+            });
+            return `
+                <tr class="hover:bg-blue-50 transition text-sm">
+                <td class="px-4 py-3 text-gray-400 font-mono text-xs">#${c.id}</td>
+                <td class="px-4 py-3 font-bold text-gray-800">${c.numerochat}</td>
+                <td class="px-4 py-3 text-gray-600">${c.nombreEDS || '—'}</td>
+                <td class="px-4 py-3 text-gray-500">${fecha}</td>
+                <td class="px-4 py-3 text-gray-700">${c.nombre}</td>
+                </tr>`;
+        }).join('');
+
+    } catch (error) {
+        console.error(error);
     }
 }
 

@@ -15,10 +15,10 @@ function buscar(lista, valor) {
       || null;
 }
 
-function buscarEDS(estaciones, codigoCliente) {
-  if (!codigoCliente) return null;
-  const nit = String(codigoCliente).trim();
-  return estaciones.find(e => String(e.NIT ?? '').trim() === nit) || null;
+function buscarEDS(estaciones, codigo) {
+  if (!codigo) return null;
+  const c = String(codigo).trim();
+  return estaciones.find(e => String(e.codigocliente2wdesk ?? '').trim() === c) || null;
 }
 
 function toDate(val) {
@@ -46,7 +46,7 @@ async function cargarCatalogos(db) {
     db.request().query(`SELECT id, nombre FROM estatus`),
     db.request().query(`SELECT id, nombre FROM prioridad`),
     db.request().query(`SELECT id, nombre FROM gruposColaborador`),
-    db.request().query(`SELECT id, nombre, NIT FROM estaciones WHERE existe = 1`),
+    db.request().query(`SELECT id, nombre, codigocliente2wdesk FROM estaciones WHERE existe = 1`),
   ]);
   return {
     analistas:     a.recordset,
@@ -152,15 +152,8 @@ const previewExcel = async (req, res) => {
       const direccionNom     = get('DIRECCIÓN')      || get('DIRECCION');
 
       const edsMatch = buscarEDS(cat.estaciones, codCliente);
-      let edsNueva = null, edsNombre;
-      if (edsMatch) {
-        edsNombre = edsMatch.nombre;
-      } else if (codCliente) {
-        edsNombre = nombreClienteNom || `NIT:${codCliente}`;
-        edsNueva  = { NIT: codCliente, nombre: nombreClienteNom || `EDS ${codCliente}`, direccion: direccionNom || null };
-      } else {
-        edsNombre = null;
-      }
+      const edsNombre = edsMatch ? edsMatch.nombre : (nombreClienteNom || (codCliente ? String(codCliente).trim() : null));
+      const clienteNoRegistrado = !!codCliente && !edsMatch;
 
       const analistaMatch  = creadoPorNom
         ? buscar(cat.analistas, creadoPorNom)
@@ -169,19 +162,19 @@ const previewExcel = async (req, res) => {
       const estatusMatch = buscar(cat.estatus, estatusNom);
       const esCerrado    = estatusMatch?.id === 1 || estatusMatch?.id === 2;
 
-      // Resolver escalado
+      // escalado
       let escaladoMatch;
       if (responsableNom) {
         escaladoMatch = buscar(cat.analistas, responsableNom);
       } else if (esCerrado) {
         escaladoMatch = analistaMatch;
       } else {
-        escaladoMatch = null; // mal escalado: activo sin responsable
+        escaladoMatch = null;
       }
 
       const malEscalado = !responsableNom && !esCerrado;
 
-      // Resolver grupo: Excel → grupo del responsable → grupo del creador
+      // grupo: excel > responsable > creador
       let grupoMatch = buscar(cat.grupos, grupoNom);
       if (!grupoMatch) {
         const fuenteGrupo = escaladoMatch || analistaMatch;
@@ -195,6 +188,7 @@ const previewExcel = async (req, res) => {
       const prioridadMatch = buscar(cat.prioridad,  prioridadNom);
 
       const errores = [];
+      if (clienteNoRegistrado) errores.push(`Cliente "${codCliente}" no registrado — importe clientes primero`);
       if (!titulo) errores.push('Sin título (TÍTULO vacío)');
       if (tipoNom && !tipoMatch) errores.push(`Tipo de solicitud no encontrado: "${tipoNom}"`);
       if (catNom  && !catMatch)  errores.push(`Categoría no encontrada: "${catNom}"`);
@@ -236,7 +230,7 @@ const previewExcel = async (req, res) => {
         codigo2wd:          codigo || null,
         ...nuevoData,
         edsEncontrada:      !!edsMatch,
-        edsNueva,
+        clienteNoRegistrado,
         creadoPorNom,
         creadorNuevo,
         responsableNom,
@@ -248,28 +242,21 @@ const previewExcel = async (req, res) => {
         grupoNom,
         malEscalado,
         accion,
-        estado:             errores.length ? 'advertencia' : 'ok',
+        estado:             clienteNoRegistrado ? 'error' : (errores.length ? 'advertencia' : 'ok'),
         camposModificados,
         errores,
       };
     });
 
-    const nitsSeen  = new Set();
-    let   edsNuevas = 0;
-    for (const f of filas) {
-      if (f.edsNueva && !nitsSeen.has(f.edsNueva.NIT)) {
-        nitsSeen.add(f.edsNueva.NIT);
-        edsNuevas++;
-      }
-    }
+    const erroresBloqueantes = filas.filter(f => f.estado === 'error').length;
 
     res.json({
       total:        filas.length,
-      insertar:     filas.filter(f => f.accion === 'insertar').length,
-      actualizar:   filas.filter(f => f.accion === 'actualizar').length,
-      omitir:       filas.filter(f => f.accion === 'omitir').length,
-      advertencias: filas.filter(f => f.estado === 'advertencia').length,
-      edsNuevas,
+      insertar:            filas.filter(f => f.accion === 'insertar' && f.estado !== 'error').length,
+      actualizar:          filas.filter(f => f.accion === 'actualizar' && f.estado !== 'error').length,
+      omitir:              filas.filter(f => f.accion === 'omitir').length,
+      advertencias:        filas.filter(f => f.estado === 'advertencia').length,
+      erroresBloqueantes,
       filas,
     });
   } catch (err) {
@@ -285,7 +272,7 @@ const confirmarImport = async (req, res) => {
       return res.status(400).json({ error: 'Sin filas para importar' });
 
     const db = await pool;
-    let insertados = 0, actualizados = 0, edsCreadas = 0, analistasCreados = 0;
+    let insertados = 0, actualizados = 0, analistasCreados = 0;
     const errores = [];
 
     // analistas nuevos
@@ -319,34 +306,11 @@ const confirmarImport = async (req, res) => {
       }
     }
 
-    // EDS nuevas
-    const nitsSeen = new Set();
-    for (const f of filas) {
-      if (f.accion === 'omitir') continue;
-      if (f.estado === 'advertencia' && !incluirAdvertencias) continue;
-      if (!f.edsNueva || nitsSeen.has(f.edsNueva.NIT)) continue;
-      nitsSeen.add(f.edsNueva.NIT);
-
-      try {
-        const check = await db.request()
-          .input('nit', sql.NVarChar, f.edsNueva.NIT)
-          .query(`SELECT id FROM estaciones WHERE NIT = @nit`);
-        if (!check.recordset.length) {
-          await db.request()
-            .input('nombre',    sql.NVarChar, f.edsNueva.nombre)
-            .input('nit',       sql.NVarChar, f.edsNueva.NIT)
-            .input('direccion', sql.NVarChar, f.edsNueva.direccion || null)
-            .query(`INSERT INTO estaciones (nombre, NIT, direccion, existe) VALUES (@nombre, @nit, @direccion, 1)`);
-          edsCreadas++;
-        }
-      } catch (e) {
-        errores.push(`EDS NIT ${f.edsNueva.NIT}: ${e.message}`);
-      }
-    }
 
     // tickets
     for (const f of filas) {
       if (f.accion === 'omitir') continue;
+      if (f.estado === 'error') continue;
       if (f.estado === 'advertencia' && !incluirAdvertencias) continue;
 
       try {
@@ -421,7 +385,7 @@ const confirmarImport = async (req, res) => {
     const io = req.app.get('io');
     io.emit('ticketsActualizados');
 
-    res.json({ ok: true, insertados, actualizados, edsCreadas, analistasCreados, errores });
+    res.json({ ok: true, insertados, actualizados, analistasCreados, errores });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

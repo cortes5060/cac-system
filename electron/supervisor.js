@@ -312,7 +312,7 @@ async function exportarReporte(formato) {
   }
 }
 
-/* ── DESCARGA INDIVIDUAL ─────────────────────────────────────── */
+// descarga individual
 
 function _sufijoPeriodo() {
   const mes = mesActual > 0 ? '_' + String(mesActual).padStart(2, '0') : '';
@@ -986,7 +986,7 @@ function filtrarTablaTickets() {
           <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido || '—'}</td>
           <td class="px-4 py-3 text-gray-700 text-sm whitespace-nowrap">${t.analista}</td>
-          <td class="px-4 py-3 text-gray-500 text-sm max-w-28 truncate" title="${t.EDS||''}">${t.EDS || '—'}</td>
+          <td class="px-4 py-3 text-sm max-w-36 truncate" title="${t.EDS||''}">${t.NIT ? `<span class="text-gray-400 font-mono text-xs mr-1">${t.NIT}</span>` : ''}${t.EDS || '—'}</td>
           <td class="px-4 py-3 text-gray-500 text-sm max-w-32 truncate" title="${t.categoria}">${t.categoria}</td>
           <td class="px-4 py-3">${tipoBadge(t.tipoCaso)}</td>
           <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${t.estatus || '—'}</td>
@@ -1003,11 +1003,12 @@ function renderTablaEDS(data) {
   if (!_tablaEDS.length) { el.innerHTML = sinDatos(); return; }
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'EDS', 'Tickets', '% del total'])}</thead>
+      <thead>${tableHeader(['#', 'NIT', 'EDS', 'Tickets', '% del total'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
         ${(() => { const gran = data.reduce((s,r) => s+r.total,0)||1; return data.map((r, i) => `
         <tr class="hover:bg-gray-50 transition">
           <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
+          <td class="px-4 py-2.5 text-gray-400 font-mono text-xs whitespace-nowrap">${r.NIT || '—'}</td>
           <td class="px-4 py-2.5 font-medium text-gray-800 max-w-44 truncate" title="${r.EDS}">${r.EDS}</td>
           <td class="px-4 py-2.5">
             <div class="flex items-center gap-2">
@@ -1090,7 +1091,7 @@ function renderTablaAltaPrioridad(data) {
           <td class="px-4 py-3 whitespace-nowrap">${diasBadge(t.diasAbierto)}</td>
           <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido||'—'}</td>
-          <td class="px-4 py-3 text-gray-500 text-sm max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
+          <td class="px-4 py-3 text-sm max-w-36 truncate" title="${t.EDS||''}">${t.NIT ? `<span class="text-gray-400 font-mono text-xs mr-1">${t.NIT}</span>` : ''}${t.EDS||'—'}</td>
           <td class="px-4 py-3 text-gray-600 text-sm whitespace-nowrap">${t.creador}</td>
           <td class="px-4 py-3 text-sm whitespace-nowrap ${t.fueEscalado ? 'font-semibold' : 'text-gray-600'}" ${t.fueEscalado ? 'style="color:#7C3AED"' : ''}>${t.escaladoA}${t.fueEscalado ? ' ↑' : ''}</td>
           <td class="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
@@ -1126,7 +1127,7 @@ function renderTablaEscaladosActivos(data) {
           <td class="px-4 py-3 whitespace-nowrap">${diasBadge(t.diasAbierto)}</td>
           <td class="px-4 py-3 font-mono text-xs font-semibold whitespace-nowrap" style="color:#1565C0">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-3 font-medium text-gray-800 max-w-xs truncate" title="${(t.casoAtendido||'').replace(/"/g,'&quot;')}">${t.casoAtendido||'—'}</td>
-          <td class="px-4 py-3 text-gray-500 text-sm max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
+          <td class="px-4 py-3 text-sm max-w-36 truncate" title="${t.EDS||''}">${t.NIT ? `<span class="text-gray-400 font-mono text-xs mr-1">${t.NIT}</span>` : ''}${t.EDS||'—'}</td>
           <td class="px-4 py-3 text-gray-500 text-sm whitespace-nowrap">${t.creador}</td>
           <td class="px-4 py-3 text-sm font-semibold whitespace-nowrap" style="color:#7C3AED">${t.escaladoA}</td>
           <td class="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">${t.grupo}</td>
@@ -1138,7 +1139,7 @@ function renderTablaEscaladosActivos(data) {
     </table>`;
 }
 
-/* ── COMPARACIÓN ─────────────────────────────────────────────── */
+// comparacion
 
 function renderComparacion(data) {
   const el = document.getElementById('comparacion-cards');
@@ -1194,7 +1195,7 @@ function renderComparacion(data) {
   ].join('');
 }
 
-/* ── DÍA DE LA SEMANA ───────────────────────────────────────── */
+// dia de la semana
 
 function renderChartDiaSemana(data) {
   destroyChart('chart-dia-semana');
@@ -1234,7 +1235,7 @@ function renderChartDiaSemana(data) {
   });
 }
 
-/* ── TASA DE RESOLUCIÓN ─────────────────────────────────────── */
+// tiempo resolucion
 
 function renderChartTiempoResolucion(data) {
   destroyChart('chart-tasa-resolucion');
@@ -1278,7 +1279,7 @@ function renderChartTiempoResolucion(data) {
   });
 }
 
-/* ── CARGA ACTUAL ───────────────────────────────────────────── */
+// carga actual
 
 function renderCargaActual(data) {
   const el = document.getElementById('carga-grid');
@@ -1308,7 +1309,7 @@ function renderCargaActual(data) {
   }).join('');
 }
 
-/* ── REINCIDENCIA EDS ───────────────────────────────────────── */
+// reincidencia EDS
 
 function renderReincidenciaEDS(data) {
   _tablaReincidencia = Array.isArray(data) ? data : [];
@@ -1329,13 +1330,14 @@ function renderReincidenciaEDS(data) {
 
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'EDS', 'Categoría Repetida', 'Repeticiones en el Período'])}</thead>
+      <thead>${tableHeader(['#', 'NIT', 'EDS', 'Categoría Repetida', 'Repeticiones en el Período'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
         ${_tablaReincidencia.map((r, i) => {
           const rowBg = i % 2 === 0 ? '' : 'style="background:#FFFDF0"';
           return `
         <tr class="hover:bg-amber-50 transition" ${rowBg}>
           <td class="px-4 py-3 text-gray-400 font-mono text-xs">${i+1}</td>
+          <td class="px-4 py-3 text-gray-400 font-mono text-xs whitespace-nowrap">${r.NIT || '—'}</td>
           <td class="px-4 py-3 font-semibold text-gray-800 max-w-48 truncate" title="${r.EDS}">${r.EDS}</td>
           <td class="px-4 py-3 text-gray-600 max-w-52 truncate" title="${r.categoria}">${r.categoria}</td>
           <td class="px-4 py-3">${reincBadge(r.total)}</td>
@@ -1345,7 +1347,7 @@ function renderReincidenciaEDS(data) {
     </table>`;
 }
 
-/* ── CATEGORÍAS ESCALADAS ───────────────────────────────────── */
+// categorias escaladas
 
 function renderChartCategoriasEscaladas(data) {
   destroyChart('chart-cat-escaladas');
@@ -1383,7 +1385,7 @@ function renderChartCategoriasEscaladas(data) {
   });
 }
 
-/* ── MAL ESCALADOS ──────────────────────────────────────────── */
+// mal escalados
 
 function renderMalEscalados(data) {
   if (!data || data.error) return;

@@ -1,11 +1,11 @@
 const { sql, pool } = require('../config/db');
 
-/* ── HELPERS ────────────────────────────────────────────────── */
+// helpers
 
 function periodo(req) {
   const now = new Date();
   return {
-    mes:  req.query.mes ? parseInt(req.query.mes) : 0,   // 0 = todos los meses
+    mes:  req.query.mes ? parseInt(req.query.mes) : 0,   // 0 = todos
     anio: parseInt(req.query.anio) || now.getFullYear()
   };
 }
@@ -54,7 +54,7 @@ function mkReq(db, p, f) {
   return r;
 }
 
-/* ── KPIs ──────────────────────────────────────────────────── */
+// kpis
 
 const getKPIs = async (req, res) => {
   try {
@@ -105,14 +105,14 @@ const getKPIs = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-/* ── GRÁFICOS ──────────────────────────────────────────────── */
+// graficos
 
 const getTicketsPorAnalista = async (req, res) => {
   try {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const pw = periodoWhere(p, 't'), fw = filtroWhere(f, 't');
-    // Incluye todos los analistas (existe=0 también) que tengan tickets en el período
+    // incluye analistas inactivos si tienen tickets
     const result = await r.query(`
       SELECT a.nombre, COUNT(t.id) AS tickets
       FROM tickets t
@@ -144,7 +144,7 @@ const getTicketsPorDia = async (req, res) => {
     const r = mkReq(await pool, p, f);
     const pw = periodoWhere(p), fw = filtroWhere(f);
 
-    // When no month selected → group by month instead of day
+    // si no hay mes, agrupar por mes
     if (p.mes === 0) {
       const result = await r.query(`
         SELECT MONTH(fechaHora) AS periodo, COUNT(*) AS total
@@ -205,7 +205,7 @@ const getHeatmapEDS = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-/* ── TABLAS ────────────────────────────────────────────────── */
+// tablas
 
 const getUltimosTickets = async (req, res) => {
   try {
@@ -215,7 +215,7 @@ const getUltimosTickets = async (req, res) => {
       SELECT TOP 500
         t.id, t.codigo2wd, t.casoAtendido,
         ISNULL(a.nombre,  '—') AS analista,
-        t.EDS,
+        t.EDS, ISNULL(st.NIT, '') AS NIT,
         ISNULL(c.nombre,  '—') AS categoria,
         ISNULL(tc.nombre, '—') AS tipoCaso,
         ISNULL(e.nombre,  '—') AS estatus,
@@ -227,6 +227,7 @@ const getUltimosTickets = async (req, res) => {
       LEFT JOIN tiposCaso tc ON t.idTipoCaso  = tc.id
       LEFT JOIN estatus   e  ON t.idEstatus   = e.id
       LEFT JOIN prioridad pr ON t.idPrioridad = pr.id
+      LEFT JOIN estaciones st ON t.EDS = st.nombre
       WHERE ${periodoWhere(p,'t')}${filtroWhere(f,'t')}
       ORDER BY t.fechaHora DESC
     `);
@@ -239,10 +240,11 @@ const getRankingEDS = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT TOP 30 EDS, COUNT(*) AS total
-      FROM tickets
-      WHERE ${periodoWhere(p)} AND EDS IS NOT NULL AND EDS != ''${filtroWhere(f)}
-      GROUP BY EDS ORDER BY total DESC
+      SELECT TOP 30 t.EDS, ISNULL(MAX(st.NIT), '') AS NIT, COUNT(*) AS total
+      FROM tickets t
+      LEFT JOIN estaciones st ON t.EDS = st.nombre
+      WHERE ${periodoWhere(p,'t')} AND t.EDS IS NOT NULL AND t.EDS != ''${filtroWhere(f,'t')}
+      GROUP BY t.EDS ORDER BY total DESC
     `);
     res.json(result.recordset);
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -262,7 +264,7 @@ const getDistribucionPrioridad = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-/* ── ESCALACIÓN ────────────────────────────────────────────── */
+// escalacion
 
 const getTopAltaPrioridad = async (req, res) => {
   try {
@@ -270,7 +272,7 @@ const getTopAltaPrioridad = async (req, res) => {
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
       SELECT
-        t.id, t.codigo2wd, t.casoAtendido, t.EDS,
+        t.id, t.codigo2wd, t.casoAtendido, t.EDS, ISNULL(st.NIT, '') AS NIT,
         ISNULL(cr.nombre, '—') AS creador,
         ISNULL(es.nombre, '—') AS escaladoA,
         ISNULL(e.nombre,  '—') AS estatus,
@@ -283,6 +285,7 @@ const getTopAltaPrioridad = async (req, res) => {
       LEFT JOIN analistas  es ON t.escalado    = es.id
       LEFT JOIN estatus    e  ON t.idEstatus   = e.id
       LEFT JOIN prioridad  pr ON t.idPrioridad = pr.id
+      LEFT JOIN estaciones st ON t.EDS         = st.nombre
       WHERE ${periodoWhere(p,'t')}${filtroWhere(f,'t')}
         AND pr.nombre = 'Alta'
         AND e.nombre NOT IN ('Cerrado','Cancelado')
@@ -336,7 +339,7 @@ const getTablaEscaladosActivos = async (req, res) => {
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
       SELECT
-        t.id, t.codigo2wd, t.casoAtendido, t.EDS,
+        t.id, t.codigo2wd, t.casoAtendido, t.EDS, ISNULL(st.NIT, '') AS NIT,
         ISNULL(cr.nombre, '—') AS creador,
         ISNULL(es.nombre, '—') AS escaladoA,
         ISNULL(e.nombre,  '—') AS estatus,
@@ -350,6 +353,7 @@ const getTablaEscaladosActivos = async (req, res) => {
       LEFT JOIN estatus    e  ON t.idEstatus   = e.id
       LEFT JOIN prioridad  pr ON t.idPrioridad = pr.id
       LEFT JOIN gruposColaborador g ON t.idGrupoColaborador = g.id
+      LEFT JOIN estaciones st ON t.EDS = st.nombre
       WHERE ${periodoWhere(p,'t')}${filtroWhere(f,'t')}
         AND t.idGrupoColaborador IS NOT NULL
         AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL AND t.escalado != t.idAnalista
@@ -360,7 +364,7 @@ const getTablaEscaladosActivos = async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
-/* ── ANÁLISIS AVANZADO ─────────────────────────────────────── */
+// analisis
 
 const getComparacion = async (req, res) => {
   try {
@@ -419,7 +423,11 @@ const getTiempoResolucion = async (req, res) => {
       SELECT
         a.nombre,
         COUNT(t.id) AS cerrados,
-        ROUND(AVG(CAST(DATEDIFF(DAY, t.fechaHora, ISNULL(t.fechaCaso, t.fechaHora)) AS FLOAT)), 1) AS diasPromedio
+        ROUND(AVG(CAST(
+          CASE WHEN DATEDIFF(DAY, t.fechaHora, ISNULL(t.fechaCaso, t.fechaHora)) < 0
+               THEN 0
+               ELSE DATEDIFF(DAY, t.fechaHora, ISNULL(t.fechaCaso, t.fechaHora))
+          END AS FLOAT)), 1) AS diasPromedio
       FROM tickets t
       JOIN analistas a ON ISNULL(t.escalado, t.idAnalista) = a.id
       LEFT JOIN estatus e ON t.idEstatus = e.id
@@ -468,9 +476,10 @@ const getReincidenciaEDS = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT TOP 60 t.EDS, c.nombre AS categoria, COUNT(*) AS total
+      SELECT TOP 60 t.EDS, ISNULL(MAX(st.NIT), '') AS NIT, c.nombre AS categoria, COUNT(*) AS total
       FROM tickets t
       JOIN categorias c ON t.idCategoria = c.id
+      LEFT JOIN estaciones st ON t.EDS = st.nombre
       WHERE ${periodoWhere(p, 't')}${filtroWhere(f, 't')}
         AND t.EDS IS NOT NULL AND t.EDS != ''
       GROUP BY t.EDS, c.id, c.nombre

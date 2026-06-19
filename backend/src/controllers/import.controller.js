@@ -153,7 +153,7 @@ const previewExcel = async (req, res) => {
 
       const edsMatch = buscarEDS(cat.estaciones, codCliente);
       const edsNombre = edsMatch ? edsMatch.nombre : (nombreClienteNom || (codCliente ? String(codCliente).trim() : null));
-      const clienteNoRegistrado = !!codCliente && !edsMatch;
+      const clienteNoRegistrado = !edsMatch;
 
       const analistaMatch  = creadoPorNom
         ? buscar(cat.analistas, creadoPorNom)
@@ -188,7 +188,7 @@ const previewExcel = async (req, res) => {
       const prioridadMatch = buscar(cat.prioridad,  prioridadNom);
 
       const errores = [];
-      if (clienteNoRegistrado) errores.push(`Cliente "${codCliente}" no registrado — importe clientes primero`);
+      if (clienteNoRegistrado) errores.push(codCliente ? `Cliente "${codCliente}" no registrado — importe clientes primero` : 'Sin cliente — importe clientes primero');
       if (!titulo) errores.push('Sin título (TÍTULO vacío)');
       if (tipoNom && !tipoMatch) errores.push(`Tipo de solicitud no encontrado: "${tipoNom}"`);
       if (catNom  && !catMatch)  errores.push(`Categoría no encontrada: "${catNom}"`);

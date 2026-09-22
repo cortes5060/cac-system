@@ -276,10 +276,50 @@ const asignarHorario = async (req, res) => {
   }
 };
 
+const buscarCasos = async (req, res) => {
+  try {
+    const { numero, nombreeds, fechaini, fechafin } = req.query;
+    const connection = await pool;
+    const request = connection.request();
+
+    let where = 'WHERE 1=1';
+
+    if (numero) {
+      request.input('numero', sql.NVarChar, `%${numero}%`);
+      where += ' AND CAST(c.numerochat AS NVARCHAR) LIKE @numero';
+    }
+    if (nombreeds) {
+      request.input('nombreeds', sql.NVarChar, `%${nombreeds}%`);
+      where += ' AND c.nombreEDS LIKE @nombreeds';
+    }
+    if (fechaini) {
+      request.input('fechaini', sql.Date, fechaini);
+      where += ' AND CAST(c.fecha AS DATE) >= @fechaini';
+    }
+    if (fechafin) {
+      request.input('fechafin', sql.Date, fechafin);
+      where += ' AND CAST(c.fecha AS DATE) <= @fechafin';
+    }
+
+    const result = await request.query(`
+      SELECT TOP 100 c.id, c.numerochat, c.nombreEDS, c.fecha, a.nombre
+      FROM casos3cx c
+      JOIN analistas a ON c.idAnalista = a.id
+      ${where}
+      ORDER BY c.fecha DESC
+    `);
+
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   login,
   getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden,
   getCategorias, crearCategoria, toggleCategoria,
   getEDS, crearEDS, toggleEDS,
-  getHorarios, getAnalistasHorarios, asignarHorario
+  getHorarios, getAnalistasHorarios, asignarHorario,
+  buscarCasos
 };

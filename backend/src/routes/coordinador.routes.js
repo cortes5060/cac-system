@@ -4,7 +4,8 @@ const {
   getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden,
   getCategorias, crearCategoria, toggleCategoria,
   getEDS, crearEDS, toggleEDS,
-  getHorarios, getAnalistasHorarios, asignarHorario
+  getHorarios, getAnalistasHorarios, asignarHorario,
+  buscarCasos
 } = require('../controllers/coordinador.controller');
 
 const router = Router();
@@ -29,6 +30,9 @@ router.put('/eds/:id/estado', toggleEDS);
 // Horarios
 router.get('/horarios', getHorarios);
 router.get('/analistas-horarios', getAnalistasHorarios);
+
+// Buscar casos 3CX
+router.get('/casos', buscarCasos);
 
 // Parameterized analista routes last
 router.put('/:id/estado', cambiarEstadoAnalista);

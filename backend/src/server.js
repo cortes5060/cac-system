@@ -16,7 +16,8 @@ const catalogosRoutes = require('./routes/catalogos.routes');
 const metricasRoutes    = require('./routes/metricas.routes');
 const coordinadorRoutes = require('./routes/coordinador.routes');
 const supervisorRoutes  = require('./routes/supervisor.routes');
-const importRoutes      = require('./routes/import.routes');
+const importRoutes           = require('./routes/import.routes');
+const importEstacionesRoutes = require('./routes/import-estaciones.routes');
 
 const app = express();
 const server = http.createServer(app);
@@ -51,7 +52,8 @@ app.use('/api/catalogos', catalogosRoutes);
 app.use('/api/metricas',      metricasRoutes);
 app.use('/api/coordinador',  coordinadorRoutes);
 app.use('/api/supervisor',   supervisorRoutes);
-app.use('/api/importar',    importRoutes);
+app.use('/api/importar',             importRoutes);
+app.use('/api/importar-estaciones', importEstacionesRoutes);
 
 app.set("io", io);
 

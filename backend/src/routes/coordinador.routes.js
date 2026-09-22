@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const {
   login,
-  getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden,
+  getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden, asignarPasswordAnalista,
   getCategorias, crearCategoria, toggleCategoria,
   getEDS, crearEDS, toggleEDS,
   getHorarios, getAnalistasHorarios, asignarHorario,
@@ -16,6 +16,7 @@ router.post('/login', login);
 // Analistas — specific routes before parameterized
 router.get('/analistas', getAnalistas);
 router.put('/analistas/orden', actualizarOrden);
+router.put('/analistas/:id/password', asignarPasswordAnalista);
 
 // Categorías
 router.get('/categorias', getCategorias);

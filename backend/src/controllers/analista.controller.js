@@ -1,5 +1,34 @@
 const { sql, pool } = require('../config/db');
+const bcrypt = require('bcryptjs');
 
+const loginAnalista = async (req, res) => {
+  try {
+    const { id, password } = req.body;
+    const connection = await pool;
+    const result = await connection.request()
+      .input('id', sql.Int, id)
+      .query(`SELECT id, nombre, idRol, passwordHash FROM analistas WHERE id = @id AND existe = 1`);
+
+    const ana = result.recordset[0];
+
+    if (!ana || ana.idRol !== 1) {
+      return res.status(401).json({ error: 'Acceso no autorizado' });
+    }
+    if (!ana.passwordHash) {
+      return res.status(401).json({ error: 'Este analista no tiene contraseña configurada' });
+    }
+
+    const match = await bcrypt.compare(password, ana.passwordHash);
+    if (!match) {
+      return res.status(401).json({ error: 'Contraseña incorrecta' });
+    }
+
+    res.json({ ok: true, analista: { id: ana.id, nombre: ana.nombre } });
+  } catch (error) {
+    console.error('Error login analista:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
 
 const getAnalista = async (req, res) => {
   try {
@@ -185,6 +214,7 @@ const cambiarEstado = async (req, res) => {
 };
 
 module.exports = {
+  loginAnalista,
   getAnalista,
   cambiarEstado
 }

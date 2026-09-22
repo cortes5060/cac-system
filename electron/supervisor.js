@@ -287,99 +287,6 @@ async function exportarReporte(formato) {
   }
 }
 
-/* ============================= */
-/* ENVIAR INFORME POR CORREO     */
-/* ============================= */
-
-function abrirModalCorreo() {
-
-  const modal = document.createElement('div');
-  modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50';
-  modal.id = 'modal-correo';
-
-  modal.innerHTML = `
-    <div class="bg-white rounded-3xl shadow-2xl w-[420px] max-w-full mx-4 overflow-hidden">
-      <div class="px-8 py-5" style="background:#122B4F">
-        <h2 class="text-white text-lg font-bold">Enviar informe por correo</h2>
-      </div>
-      <div class="p-8 space-y-4">
-        <p class="text-gray-500 text-sm">
-          Se adjunta un PDF con el dashboard tal como se ve ahora mismo (con los filtros y el período aplicados).
-        </p>
-        <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Destinatarios</label>
-          <input id="correo-destinatarios" type="text" placeholder="correo1@ejemplo.com, correo2@ejemplo.com"
-            class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
-          <p class="text-xs text-gray-400 mt-1">Separa varios correos con comas.</p>
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Mensaje (opcional)</label>
-          <textarea id="correo-mensaje" rows="3" placeholder="Se agrega al cuerpo del correo"
-            class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"></textarea>
-        </div>
-        <p id="correo-estado" class="text-xs" style="min-height:16px"></p>
-        <div class="flex gap-3">
-          <button onclick="document.getElementById('modal-correo').remove()"
-            class="flex-1 py-3 rounded-xl font-semibold text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 transition">Cancelar</button>
-          <button id="btn-enviar-correo-confirmar" onclick="enviarInformePorCorreo()"
-            class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition" style="background:#1565C0">Enviar</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(modal);
-  document.getElementById('correo-destinatarios').focus();
-}
-
-async function enviarInformePorCorreo() {
-
-  const btn = document.getElementById('btn-enviar-correo-confirmar');
-  const estado = document.getElementById('correo-estado');
-  const destinatarios = document.getElementById('correo-destinatarios').value.trim();
-  const mensaje = document.getElementById('correo-mensaje').value.trim();
-
-  if (!destinatarios) {
-    estado.textContent = 'Escribe al menos un correo';
-    estado.style.color = '#C41E3A';
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'Generando PDF...';
-  estado.textContent = '';
-
-  try {
-
-    const { blob } = await generarPdfDashboard();
-    const { nombre, periodo } = nombreReporte();
-
-    btn.textContent = 'Enviando...';
-
-    const form = new FormData();
-    form.append('informe', blob, `${nombre}.pdf`);
-    form.append('destinatarios', destinatarios);
-    form.append('periodo', periodo);
-    if (mensaje) form.append('mensaje', mensaje);
-
-    const response = await fetch(`${API}/api/supervisor/reporte/enviar`, { method: 'POST', body: form });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) throw new Error(data.error || 'No se pudo enviar el correo');
-
-    estado.textContent = `Enviado a ${data.enviados} destinatario${data.enviados === 1 ? '' : 's'}`;
-    estado.style.color = '#1B5E20';
-    setTimeout(() => document.getElementById('modal-correo')?.remove(), 1500);
-
-  } catch (e) {
-    console.error('Error enviando informe:', e);
-    estado.textContent = e.message || 'Error al enviar el correo';
-    estado.style.color = '#C41E3A';
-    btn.disabled = false;
-    btn.textContent = 'Enviar';
-  }
-}
-
 let _refreshTimer = null;
 function scheduleRefresh() {
   clearTimeout(_refreshTimer);
@@ -432,6 +339,7 @@ async function cargarDashboard() {
     renderTablaEscaladosActivos(escActivos);
     renderTiempos(tiempos);
     renderAntiguedad(antiguedad);
+    renderResumen({ kpis, metEsc, antiguedad, porDia });
 
   } catch (e) {
     console.error('Error cargando dashboard:', e);
@@ -1124,4 +1032,152 @@ function cerrarSesion() {
   localStorage.removeItem('supervId');
   localStorage.removeItem('supervNombre');
   window.location.href = 'index.html';
+}
+
+/* ── VISTA RESUMEN ──────────────────────────────────────────── */
+
+function renderResumen({ kpis, metEsc, antiguedad, porDia }) {
+  renderResumenAlertas({ kpis, metEsc, antiguedad });
+  renderResumenTopLista('resumen-top-categorias', kpis?.topCategorias, 'nombre', '#6A1B9A');
+  renderResumenTopLista('resumen-top-eds', kpis?.topEDS, 'EDS', '#E65100');
+  renderResumenTendencia(porDia);
+}
+
+function renderResumenAlertas({ kpis, metEsc, antiguedad }) {
+  const el = document.getElementById('resumen-alertas');
+  if (!el) return;
+
+  const alertas = [];
+
+  const masAntiguos = antiguedad?.masAntiguos || [];
+  const criticos = masAntiguos.filter(t => t.dias > 7).length;
+  if (criticos > 0) {
+    alertas.push({
+      tipo: 'danger',
+      texto: `${criticos} ticket${criticos === 1 ? '' : 's'} lleva${criticos === 1 ? '' : 'n'} más de 7 días abierto${criticos === 1 ? '' : 's'} sin cerrar.`,
+      accion: () => mostrarVista('vista-antiguedad')
+    });
+  } else if (masAntiguos.length > 0) {
+    alertas.push({
+      tipo: 'warn',
+      texto: `${masAntiguos.length} ticket${masAntiguos.length === 1 ? '' : 's'} sigue${masAntiguos.length === 1 ? '' : 'n'} abierto${masAntiguos.length === 1 ? '' : 's'}, ninguno supera los 7 días.`,
+      accion: () => mostrarVista('vista-antiguedad')
+    });
+  }
+
+  const escActivos = metEsc?.escaladosActivos ?? 0;
+  if (escActivos > 0) {
+    alertas.push({
+      tipo: 'warn',
+      texto: `${escActivos} ticket${escActivos === 1 ? '' : 's'} escalado${escActivos === 1 ? '' : 's'} sigue${escActivos === 1 ? '' : 'n'} sin resolver.`,
+      accion: () => mostrarVista('vista-escalacion')
+    });
+  }
+
+  const altaPrio = kpis?.ticketsAltaPrioridad ?? 0;
+  if (altaPrio > 0) {
+    alertas.push({
+      tipo: 'danger',
+      texto: `${altaPrio} ticket${altaPrio === 1 ? '' : 's'} de alta prioridad en el período.`,
+      accion: () => mostrarVista('vista-escalacion')
+    });
+  }
+
+  if (metEsc?.envian?.[0]) {
+    alertas.push({
+      tipo: 'warn',
+      texto: `${metEsc.envian[0].nombre} es quien más escala tickets (${metEsc.envian[0].total}) — puede valer la pena revisar por qué.`,
+      accion: () => mostrarVista('vista-escalacion')
+    });
+  }
+
+  if (!alertas.length) {
+    alertas.push({ tipo: 'ok', texto: 'Sin alertas relevantes en este período. Todo bajo control.' });
+  }
+
+  const iconos = {
+    ok:     '<circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>',
+    warn:   '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    danger: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  };
+
+  el.innerHTML = alertas.map(a => `
+    <div class="alerta-item alerta-${a.tipo}" ${a.accion ? 'style="cursor:pointer"' : ''} data-alerta>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" style="flex-shrink:0;margin-top:1px">
+        ${iconos[a.tipo]}
+      </svg>
+      <span>${a.texto}</span>
+    </div>`).join('');
+
+  el.querySelectorAll('[data-alerta]').forEach((div, i) => {
+    if (alertas[i].accion) div.addEventListener('click', alertas[i].accion);
+  });
+}
+
+function renderResumenTopLista(elId, data, campoNombre, color) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!data?.length) { el.innerHTML = sinDatos(); return; }
+
+  const max = Math.max(...data.map(d => d.total)) || 1;
+
+  el.innerHTML = data.map((d, i) => `
+    <div class="mini-rank-row">
+      <div class="mini-rank-num">${i + 1}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <span class="text-gray-700 font-medium truncate" title="${d[campoNombre]}">${d[campoNombre]}</span>
+          <span class="font-bold text-gray-800 flex-shrink-0">${d.total}</span>
+        </div>
+        <div class="bg-gray-100 rounded-full h-1.5">
+          <div class="h-1.5 rounded-full" style="width:${Math.round(d.total / max * 100)}%;background:${color}"></div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function renderResumenTendencia(resp) {
+  destroyChart('chart-resumen-tendencia');
+  const el = document.getElementById('chart-resumen-tendencia');
+  if (!el) return;
+
+  const esModo = resp && resp.modo;
+  const data   = esModo ? resp.datos : resp;
+  const modo   = esModo ? resp.modo  : 'dia';
+
+  const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  let labels, values;
+
+  if (modo === 'mes') {
+    labels = MESES_CORTOS;
+    values = Array.from({ length: 12 }, (_, i) => (data.find(r => r.periodo === i+1) || { total: 0 }).total);
+  } else {
+    const diasEnMes = new Date(anioActual, mesActual, 0).getDate();
+    labels  = Array.from({ length: diasEnMes }, (_, i) => i + 1);
+    values  = labels.map(d => (data.find(r => r.dia === d) || { total: 0 }).total);
+  }
+
+  charts['chart-resumen-tendencia'] = new Chart(el, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: '#1565C0', borderWidth: 2,
+        backgroundColor: 'rgba(21,101,192,0.08)',
+        pointRadius: 0, pointHoverRadius: 4,
+        fill: true, tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} tickets` } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9 }, maxTicksLimit: 8 } },
+        y: { display: false, beginAtZero: true }
+      }
+    },
+    plugins: [noDataPlugin()]
+  });
 }

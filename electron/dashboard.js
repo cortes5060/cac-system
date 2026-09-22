@@ -7,6 +7,30 @@ let idActual = null;
 let ordenActual = null;
 
 /* ============================= */
+/* SONIDO DE ALERTA               */
+/* ============================= */
+
+const sonidoAlerta     = new Audio('sonidos/petro.mp3');
+const sonidoActivar    = new Audio('sonidos/mario.mp3');
+const sonidoInactivar  = new Audio('sonidos/mario_die.mp3');
+const sonidoBloqueado  = new Audio('sonidos/trabaja_tienes_que_tr.mp3');
+
+function reproducirSonidoAlerta() {
+    sonidoAlerta.currentTime = 0;
+    sonidoAlerta.play().catch(err => console.warn('No se pudo reproducir el sonido de alerta:', err));
+}
+
+function reproducirSonidoActivar() {
+    sonidoActivar.currentTime = 0;
+    sonidoActivar.play().catch(err => console.warn('No se pudo reproducir el sonido de activación:', err));
+}
+
+function reproducirSonidoInactivar() {
+    sonidoInactivar.currentTime = 0;
+    sonidoInactivar.play().catch(err => console.warn('No se pudo reproducir el sonido de inactivación:', err));
+}
+
+/* ============================= */
 /* SOCKET                        */
 /* ============================= */
 
@@ -17,6 +41,8 @@ socket.on("analistaActualizado", (data) => {
     if (data.id == idActual) {
         analistaActual.activo = data.activo;
         actualizarEstadoVisual(data.activo);
+        if (data.activo == 1) reproducirSonidoActivar();
+        else reproducirSonidoInactivar();
     }
     cargarAnalistasActivos();
     cargarAnalistaSeleccionado();
@@ -25,6 +51,7 @@ socket.on("analistaActualizado", (data) => {
 socket.on("casoPasado", (d) => {
     if (d.a == idActual) {
         mostrarToast(`${d.deNombre} te pasó ${d.tipo === "LLAMADA" ? "una llamada" : "un chat"}: ${d.numerochat}`);
+        reproducirSonidoAlerta();
     }
     if (d.a == idActual || d.de == idActual) {
         if (document.getElementById("tablaMisCasos")) cargarMisCasos();
@@ -41,6 +68,10 @@ socket.on("nuevoCaso3CX", (caso) => {
     refrescarTablasCasos(caso);
     cargarAnalistasActivos();
     cargarAnalistaSeleccionado();
+
+    if (caso.idAnalista == idActual) {
+        reproducirSonidoAlerta();
+    }
 
     const input = document.getElementById("numeroChat");
     if (input) input.focus();
@@ -147,6 +178,8 @@ async function cambiarEstado() {
         const data = await response.json();
         if (!response.ok) {
             if (data.bloquear) {
+                sonidoBloqueado.currentTime = 0;
+                sonidoBloqueado.play().catch(err => console.warn('No se pudo reproducir el sonido de bloqueo:', err));
                 mostrarModal(data.mensaje, data.imagen);
                 return;
             }
@@ -266,6 +299,10 @@ let tipoCasoActual = "CHAT";
 let misCasos = [];
 let misCasosCargadoEn = 0;
 let timerMisCasos = null;
+
+let busquedaCasos = [];
+let busquedaCargadoEn = 0;
+let timerBuscarCasos = null;
 
 function escapeHtml(v) {
     return String(v ?? "").replace(/[&<>"']/g, ch => ({
@@ -738,6 +775,9 @@ async function ejecutarBusquedaCasos() {
         // Si el usuario cambió de pestaña mientras cargaba, no pintar en otra vista
         if (!document.getElementById("tablaBuscar")) return;
 
+        busquedaCasos = casos;
+        busquedaCargadoEn = Date.now();
+
         const info = document.getElementById("bus_info");
         if (info) {
             info.textContent = casos.length === 200
@@ -747,22 +787,59 @@ async function ejecutarBusquedaCasos() {
 
         if (!casos.length) {
             cont.innerHTML = "<p>No se encontraron casos.</p>";
+            detenerTimerBuscarCasos();
             return;
         }
 
-        const filas = casos.map(c => `
+        const filas = casos.map(c => {
+
+            const cerrado = c.estado === "FINALIZADO";
+            const titular = esMio(c);
+            const bloqueado = cerrado || !titular;
+
+            const responde = c.estado === "ACTIVO";
+            const noResponde = c.estado === "INACTIVO";
+
+            const clienteBtns = `
+                <div class="seg ${bloqueado ? "locked" : ""}">
+                    <button type="button" ${bloqueado ? "disabled" : ""} class="${responde ? "on on-green" : ""}"
+                        onclick="cambiarEstadoCasoBuscar(${c.id}, 'ACTIVO')" title="El cliente está respondiendo">Responde</button>
+                    <button type="button" ${bloqueado ? "disabled" : ""} class="${noResponde ? "on on-red" : ""}"
+                        onclick="cambiarEstadoCasoBuscar(${c.id}, 'INACTIVO')" title="El cliente no responde">No responde</button>
+                </div>`;
+
+            const casoBtns = c.estado ? `
+                <div class="seg ${bloqueado ? "locked" : ""}">
+                    <button type="button" ${bloqueado ? "disabled" : ""} class="${!cerrado ? "on on-green" : ""}"
+                        title="Caso abierto: los tiempos están corriendo">Activo</button>
+                    <button type="button" ${bloqueado ? "disabled" : ""} class="${cerrado ? "on on-dark" : ""}"
+                        onclick="cambiarEstadoCasoBuscar(${c.id}, 'FINALIZADO')" title="Cerrar el caso y detener los tiempos">${cerrado ? "✓ Cerrado" : "Cerrar"}</button>
+                </div>` : "";
+
+            const estadoCelda = c.estado
+                ? `${clienteBtns}${casoBtns}`
+                : pillEstado(c.estado);
+
+            const tiemposCelda = c.estado ? `
+                <dl class="tiempos">
+                    <dt title="Con respuesta">Resp</dt><dd><span id="tActB-${c.id}"></span> <span class="text-gray-400 font-normal">(${c.vecesActivo}×)</span></dd>
+                    <dt title="Sin respuesta">Sin</dt><dd><span id="tInaB-${c.id}"></span> <span class="text-gray-400 font-normal">(${c.vecesInactivo}×)</span></dd>
+                    <dt title="Ejecución total">Ejec</dt><dd id="tEjeB-${c.id}"></dd>
+                </dl>` : "—";
+
+            return `
             <tr class="hover:bg-blue-50 transition text-sm">
-                <td class="px-4 py-3">
+                <td class="px-4 py-3 align-top">
                     <div class="flex items-center gap-2">${badgeTipo(c.tipo)}
                         <span class="font-bold text-gray-800">${escapeHtml(c.numerochat)}</span></div>
                     <div class="text-xs text-gray-400 mt-0.5">#${c.id} · ${formatearFecha(c.fecha)}${c.nombreEDS ? " · " + escapeHtml(c.nombreEDS) : ""}</div>
                     ${etiquetaTraspaso(c)}
                 </td>
-                <td class="px-4 py-3">${pillEstado(c.estado)}</td>
-                <td class="px-4 py-3 font-mono text-xs text-gray-700">${c.estado ? formatearDuracion(Number(c.segActivo) + Number(c.segInactivo)) : "—"}</td>
-                <td class="px-4 py-3">${ticketCeldaHtml(c)}</td>
-            </tr>
-        `).join("");
+                <td class="px-4 py-3 align-top space-y-1.5">${estadoCelda}</td>
+                <td class="px-4 py-3 align-top">${tiemposCelda}</td>
+                <td class="px-4 py-3 align-top">${ticketCeldaHtml(c)}</td>
+            </tr>`;
+        }).join("");
 
         cont.innerHTML = `
             <div class="overflow-x-auto rounded-xl border border-gray-200">
@@ -771,7 +848,7 @@ async function ejecutarBusquedaCasos() {
             <tr style="background:#122B4F">
                 <th class="${TH}">Caso</th>
                 <th class="${TH}">Estado</th>
-                <th class="${TH}">Ejecución</th>
+                <th class="${TH}">Tiempos</th>
                 <th class="${TH}">Ticket 2WD</th>
             </tr>
             </thead>
@@ -780,9 +857,85 @@ async function ejecutarBusquedaCasos() {
             </div>
         `;
 
+        actualizarTiemposBuscar();
+        iniciarTimerBuscarCasos();
+
     } catch (error) {
         console.error(error);
         cont.innerHTML = "<p class='text-red-500'>Error buscando casos.</p>";
+    }
+}
+
+// Mismo criterio que "Mis Casos": el tramo en curso sigue corriendo aquí
+function actualizarTiemposBuscar() {
+
+    const extra = (Date.now() - busquedaCargadoEn) / 1000;
+
+    busquedaCasos.forEach(c => {
+
+        if (!c.estado) return;
+
+        const corre = esMio(c);
+        const act = Number(c.segActivo) + (corre && c.estado === "ACTIVO" ? extra : 0);
+        const ina = Number(c.segInactivo) + (corre && c.estado === "INACTIVO" ? extra : 0);
+
+        const set = (id, seg) => {
+            const el = document.getElementById(`${id}-${c.id}`);
+            if (el) el.textContent = formatearDuracion(seg);
+        };
+
+        set("tActB", act);
+        set("tInaB", ina);
+        set("tEjeB", act + ina);
+    });
+}
+
+function iniciarTimerBuscarCasos() {
+    detenerTimerBuscarCasos();
+    timerBuscarCasos = setInterval(() => {
+        if (!document.getElementById("tablaBuscar")) return detenerTimerBuscarCasos();
+        actualizarTiemposBuscar();
+    }, 1000);
+}
+
+function detenerTimerBuscarCasos() {
+    if (timerBuscarCasos) clearInterval(timerBuscarCasos);
+    timerBuscarCasos = null;
+}
+
+function cambiarEstadoCasoBuscar(idCaso, estado) {
+
+    if (estado === "FINALIZADO") {
+        mostrarDialogo({
+            titulo: "Finalizar caso",
+            mensaje: "Se detendrán todos los tiempos y ya no podrás cambiar el estado de este caso.",
+            textoConfirmar: "Sí, finalizar",
+            onConfirmar: () => enviarEstadoCasoBuscar(idCaso, estado)
+        });
+        return;
+    }
+
+    enviarEstadoCasoBuscar(idCaso, estado);
+}
+
+async function enviarEstadoCasoBuscar(idCaso, estado) {
+
+    try {
+
+        const response = await fetch(`${API}/api/casos/${idCaso}/estado`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ estado, idAnalista: Number(idActual) })
+        });
+
+        if (!response.ok) throw new Error("Error cambiando estado");
+
+        await ejecutarBusquedaCasos();
+
+    } catch (error) {
+        console.error(error);
+        mostrarAviso("No se pudo cambiar el estado del caso");
+        ejecutarBusquedaCasos();
     }
 }
 
@@ -1056,10 +1209,6 @@ async function mostrarModulo(tipo) {
 
                 <p id="bus_info" class="text-xs text-gray-400 mb-3">&nbsp;</p>
                 <div id="tablaBuscar" class="text-gray-400 text-sm">Cargando...</div>
-                <p class="text-xs text-gray-400 mt-2">
-                    El ticket de 2WD se guarda al salir del campo o al pulsar Enter. Puedes dejarlo vacío y agregarlo después.
-                    Los casos abiertos siguen sumando tiempo.
-                </p>
             </div>
         `;
 

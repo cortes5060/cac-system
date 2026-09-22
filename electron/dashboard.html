@@ -7,6 +7,14 @@
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
     .topnav { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
+    body { padding-top: 34px; }
+    .titlebar-drag {
+      position: fixed; top: 0; left: 0; right: 0; height: 34px; z-index: 200;
+      background: #0D1F3A; -webkit-app-region: drag;
+      display: flex; align-items: center; gap: 8px; padding: 0 12px;
+      color: #C7D2E3; font-size: 12px; font-weight: 600; letter-spacing: 0.03em;
+    }
+    .titlebar-drag img { -webkit-app-region: no-drag; pointer-events: none; }
     .card { background: white; border-radius: 1.25rem; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
     #switchEstado { transition: background-color 0.3s; }
     #circuloSwitch { transition: transform 0.3s; }
@@ -36,6 +44,11 @@
 </head>
 
 <body class="min-h-screen">
+
+  <div class="titlebar-drag">
+    <img src="img/icon.ico" width="16" height="16" alt="">
+    <span>CAC Insepet</span>
+  </div>
 
   <!-- ===== TOP NAV ===== -->
   <nav class="topnav px-8 py-4 flex justify-between items-center shadow-xl">

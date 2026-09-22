@@ -11,6 +11,12 @@ if (!coordId) {
 window.addEventListener('load', () => {
     document.getElementById('coordNombre').textContent = coordNombre || '';
     activarTab('analistas');
+
+    if (localStorage.getItem('coordSonidoLogin') === '1') {
+        localStorage.removeItem('coordSonidoLogin');
+        new Audio('sonidos/por_fin_apareciste.mp3').play()
+            .catch(err => console.warn('No se pudo reproducir el sonido de bienvenida:', err));
+    }
 });
 
 function cerrarSesion() {
@@ -129,6 +135,10 @@ async function seccionAnalistas(c) {
                                                 : 'bg-green-50 text-green-700 hover:bg-green-100 border-green-200'}">
                                             ${a.activo ? 'Inactivar' : 'Activar'}
                                         </button>
+                                        <button onclick="abrirModalPasswordAnalista(${a.id}, '${a.nombre.replace(/'/g, "\\'")}', ${a.tienePassword ? 1 : 0})"
+                                            class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 transition">
+                                            ${a.tienePassword ? 'Cambiar clave' : 'Asignar clave'}
+                                        </button>
                                         <button onclick="pedirEliminar(${a.id}, '${a.nombre.replace(/'/g, "\\'")}')"
                                             class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 transition">
                                             Eliminar
@@ -154,6 +164,81 @@ async function toggleAnalista(id, nuevoEstado) {
         await seccionAnalistas(document.getElementById('tabContenido'));
     } catch {
         alert('Error al cambiar el estado.');
+    }
+}
+
+function abrirModalPasswordAnalista(id, nombre, tienePassword) {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 fade-in';
+    modal.id = 'modal-password-analista';
+    modal.innerHTML = `
+        <div class="bg-white rounded-3xl shadow-2xl w-96 mx-4 overflow-hidden">
+            <div class="px-8 py-6" style="background: linear-gradient(135deg, #122B4F, #1565C0)">
+                <div class="text-blue-200 text-xs font-bold tracking-widest uppercase mb-1">
+                    ${tienePassword ? 'Cambiar contraseña' : 'Asignar contraseña'}
+                </div>
+                <h2 class="text-white text-xl font-bold">${nombre}</h2>
+            </div>
+            <div class="p-8">
+                <p class="text-gray-500 text-sm mb-5">
+                    ${tienePassword
+                        ? 'Se reemplaza la contraseña actual. No necesitas saber la anterior.'
+                        : 'Este analista todavía no tiene contraseña configurada.'}
+                </p>
+                <label class="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Nueva contraseña</label>
+                <input type="password" id="nuevaPasswordAnalista" placeholder="Mínimo 4 caracteres"
+                    class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition mb-1"
+                    onkeypress="if(event.key==='Enter') confirmarPasswordAnalista(${id})"/>
+                <p id="passwordAnalistaError" class="text-red-500 text-xs mb-5 hidden"></p>
+                <div class="flex gap-3 mt-5">
+                    <button onclick="document.getElementById('modal-password-analista').remove()"
+                        class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition">
+                        Cancelar
+                    </button>
+                    <button id="btnConfirmarPasswordAnalista" onclick="confirmarPasswordAnalista(${id})"
+                        class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition"
+                        style="background: linear-gradient(135deg, #122B4F, #1565C0)">
+                        Guardar
+                    </button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    setTimeout(() => document.getElementById('nuevaPasswordAnalista')?.focus(), 80);
+}
+
+async function confirmarPasswordAnalista(id) {
+    const input = document.getElementById('nuevaPasswordAnalista');
+    const btn   = document.getElementById('btnConfirmarPasswordAnalista');
+    const error = document.getElementById('passwordAnalistaError');
+    const password = input?.value || '';
+
+    if (password.length < 4) {
+        error.textContent = 'La contraseña debe tener al menos 4 caracteres';
+        error.classList.remove('hidden');
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Guardando...';
+    error.classList.add('hidden');
+
+    try {
+        const res = await fetch(`${API}/api/coordinador/analistas/${id}/password`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'No se pudo guardar la contraseña');
+
+        document.getElementById('modal-password-analista')?.remove();
+        await seccionAnalistas(document.getElementById('tabContenido'));
+    } catch (e) {
+        error.textContent = e.message || 'Error al guardar la contraseña';
+        error.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Guardar';
     }
 }
 
@@ -764,15 +849,6 @@ async function seccionImportarClientes(c) {
     c.innerHTML = `
         <div class="fade-in">
             ${seccionHeader('Importar Clientes desde Excel', '#1565C0')}
-            <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 max-w-xl text-xs text-blue-700">
-                <p class="font-bold mb-1">Columnas esperadas en el Excel:</p>
-                <ul class="space-y-0.5">
-                    <li>• <strong>Código</strong> → codigocliente2wdesk (clave)</li>
-                    <li>• <strong>Nombre</strong> → nombre de la estación</li>
-                    <li>• <strong>Número de identificación personal/empresarial</strong> → NIT</li>
-                    <li>• <strong>Dirección</strong> → dirección</li>
-                </ul>
-            </div>
             <div class="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-5 max-w-xl">
                 <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Seleccionar archivo</p>
                 <div class="flex gap-3 items-center flex-wrap">

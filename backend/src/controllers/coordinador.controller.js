@@ -114,6 +114,40 @@ const eliminarAnalista = async (req, res) => {
   }
 };
 
+// El coordinador asigna una contraseña nueva a un analista sin necesitar
+// la anterior. Restringido a idRol = 1: la contraseña del propio
+// coordinador nunca se toca desde aqui, solo se modifica directo en BD.
+const asignarPasswordAnalista = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+
+    if (!password || password.length < 4) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
+    }
+
+    const connection = await pool;
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    const result = await connection.request()
+      .input('id', sql.Int, id)
+      .input('passwordHash', sql.NVarChar, passwordHash)
+      .query(`
+        UPDATE analistas SET passwordHash = @passwordHash
+        WHERE id = @id AND idRol = 1 AND existe = 1
+      `);
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ error: 'Analista no encontrado' });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error asignando contraseña:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const actualizarOrden = async (req, res) => {
   try {
     const { ordenes } = req.body;
@@ -317,7 +351,7 @@ const buscarCasos = async (req, res) => {
 
 module.exports = {
   login,
-  getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden,
+  getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden, asignarPasswordAnalista,
   getCategorias, crearCategoria, toggleCategoria,
   getEDS, crearEDS, toggleEDS,
   getHorarios, getAnalistasHorarios, asignarHorario,

@@ -167,6 +167,8 @@ const buscarCasos = async (req, res) => {
         (SELECT TOP 1 ad.nombre FROM casos3cx_traspasos tr JOIN analistas ad ON ad.id = tr.deAnalista
           WHERE tr.idCaso = c.id ORDER BY tr.id DESC) AS recibidoDe,
         (SELECT TOP 1 estado FROM casos3cx_estados WHERE idCaso = c.id ORDER BY id DESC) AS estado,
+        ISNULL(s.vecesActivo, 0)   AS vecesActivo,
+        ISNULL(s.vecesInactivo, 0) AS vecesInactivo,
         ISNULL(s.segActivo, 0)   AS segActivo,
         ISNULL(s.segInactivo, 0) AS segInactivo,
         t.id     AS idTicket,
@@ -174,6 +176,8 @@ const buscarCasos = async (req, res) => {
       FROM casos3cx c
       OUTER APPLY (
         SELECT
+          SUM(CASE WHEN e.estado = 'ACTIVO'    THEN 1 ELSE 0 END) AS vecesActivo,
+          SUM(CASE WHEN e.estado = 'INACTIVO'  THEN 1 ELSE 0 END) AS vecesInactivo,
           SUM(CASE WHEN e.estado = 'ACTIVO'
                    THEN DATEDIFF(SECOND, e.inicio, ISNULL(e.fin, GETDATE())) ELSE 0 END) AS segActivo,
           SUM(CASE WHEN e.estado = 'INACTIVO'
@@ -673,7 +677,8 @@ const cambiarEstadoCaso = async (req, res) => {
       .query(`
         INSERT INTO casos3cx_estados (idCaso, estado, inicio, fin, idAnalista)
         VALUES (@idCaso, @estado, GETDATE(),
-                CASE WHEN @estado = 'FINALIZADO' THEN GETDATE() END)
+                CASE WHEN @estado = 'FINALIZADO' THEN GETDATE() END,
+                @idAnalista)
       `);
 
     await transaction.commit();

@@ -9,6 +9,13 @@ function createWindow() {
     height: 800,
     autoHideMenuBar: true,
     icon: path.join(__dirname, 'img', 'icon.ico'),
+    backgroundColor: '#0D1F3A',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0D1F3A',
+      symbolColor: '#ffffff',
+      height: 34
+    },
     webPreferences: {
       contextIsolation: false,
       nodeIntegration: false

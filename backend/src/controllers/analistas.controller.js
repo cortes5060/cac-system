@@ -3,7 +3,8 @@ const { sql, pool } = require('../config/db');
 const getAnalistas = async (req, res) => {
   try {
     const result = await (await pool).request().query(`
-      SELECT id, nombre, orden, activo, idRol
+      SELECT id, nombre, orden, activo, idRol,
+        CASE WHEN passwordHash IS NOT NULL THEN 1 ELSE 0 END AS tienePassword
       FROM analistas
       WHERE existe = 1
       ORDER BY orden

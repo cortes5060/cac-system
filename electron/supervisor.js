@@ -3,10 +3,11 @@ const supervNombre = localStorage.getItem('supervNombre');
 if (!supervId) window.location.href = 'index.html';
 
 let mesActual, anioActual;
-let filtroAnalista = '', filtroEDS = '', filtroCategoria = '';
+let filtroAnalista = '', filtroEDS = '', filtroCategoria = '', filtroGrupoCategoria = '';
 let filtroGrupo = 0;  // 0 = General (todos los grupos)
 let _grupos = [];
 let buscEDS = null, buscCat = null;
+let _generandoInforme = false; // evita que un refresco del dashboard interrumpa la captura del PDF
 const charts = {};
 
 const PALETTE = ['#122B4F','#1565C0','#C41E3A','#1B5E20','#E65100','#6A1B9A','#00695C','#F57F17','#AD1457','#37474F'];
@@ -162,10 +163,11 @@ function seleccionarGrupo(id) {
 
 async function cargarFiltros() {
   try {
-    const [analistas, estaciones, categorias] = await Promise.all([
+    const [analistas, estaciones, categorias, gruposCategoria] = await Promise.all([
       fetch(`${API}/api/catalogos/analistas`).then(r => r.json()),
       fetch(`${API}/api/catalogos/estaciones`).then(r => r.json()),
       fetch(`${API}/api/catalogos/categorias`).then(r => r.json()),
+      fetch(`${API}/api/catalogos/grupos-categoria`).then(r => r.json()),
     ]);
 
     const selAna = document.getElementById('fil-analista');
@@ -174,18 +176,26 @@ async function cargarFiltros() {
       o.value = a.id; o.textContent = a.nombre;
       selAna.appendChild(o);
     });
-    selAna.addEventListener('change', () => { filtroAnalista = selAna.value; actualizarIndicadorFiltros(); });
+    selAna.addEventListener('change', () => { filtroAnalista = selAna.value; actualizarIndicadorFiltros(); cargarDashboard(); });
+
+    const selGrupoCat = document.getElementById('fil-grupo-cat');
+    gruposCategoria.forEach(g => {
+      const o = document.createElement('option');
+      o.value = g.nombre; o.textContent = g.nombre;
+      selGrupoCat.appendChild(o);
+    });
+    selGrupoCat.addEventListener('change', () => { filtroGrupoCategoria = selGrupoCat.value; actualizarIndicadorFiltros(); cargarDashboard(); });
 
     buscEDS = crearBuscable({
       inputId: 'fil-eds-input', listId: 'fil-eds-list', clearId: 'fil-eds-clear',
       opciones: estaciones.map(e => ({ value: e.nombre, label: e.nombre })),
-      onSelect(v) { filtroEDS = v; actualizarIndicadorFiltros(); }
+      onSelect(v) { filtroEDS = v; actualizarIndicadorFiltros(); cargarDashboard(); }
     });
 
     buscCat = crearBuscable({
       inputId: 'fil-cat-input', listId: 'fil-cat-list', clearId: 'fil-cat-clear',
       opciones: categorias.map(c => ({ value: String(c.id), label: c.nombre })),
-      onSelect(v) { filtroCategoria = v; actualizarIndicadorFiltros(); }
+      onSelect(v) { filtroCategoria = v; actualizarIndicadorFiltros(); cargarDashboard(); }
     });
 
   } catch (e) {
@@ -194,13 +204,14 @@ async function cargarFiltros() {
 }
 
 function actualizarIndicadorFiltros() {
-  const hayFiltros = filtroAnalista || filtroEDS || filtroCategoria;
+  const hayFiltros = filtroAnalista || filtroEDS || filtroCategoria || filtroGrupoCategoria;
   document.getElementById('filtros-activos')?.classList.toggle('hidden', !hayFiltros);
 }
 
 function limpiarFiltros() {
-  filtroAnalista = ''; filtroEDS = ''; filtroCategoria = '';
+  filtroAnalista = ''; filtroEDS = ''; filtroCategoria = ''; filtroGrupoCategoria = '';
   document.getElementById('fil-analista').value = '';
+  document.getElementById('fil-grupo-cat').value = '';
   if (buscEDS) buscEDS.clear();
   if (buscCat) buscCat.clear();
   actualizarIndicadorFiltros();
@@ -225,33 +236,203 @@ function nombreReporte() {
   return { nombre: `Reporte-CAC-${mesLabel}-${anioActual}`, periodo: `${mesLabel} ${anioActual}` };
 }
 
-// Captura el dashboard visible y arma el PDF (mismo criterio que "Exportar"). Se reutiliza para descargar y para enviar por correo.
-async function generarPdfDashboard() {
-  const main = document.querySelector('main');
-  const canvas = await html2canvas(main, {
-    scale: 2, useCORS: true, logging: false,
-    backgroundColor: '#EEF0F6'
+/* ============================= */
+/* INFORME PDF                   */
+/* ============================= */
+
+function filtrosTexto() {
+  const partes = [];
+  const selAna = document.getElementById('fil-analista');
+  if (filtroAnalista && selAna) {
+    const opt = [...selAna.options].find(o => o.value === filtroAnalista);
+    if (opt) partes.push(`Responsable: ${opt.textContent}`);
+  }
+  if (filtroEDS)       partes.push(`EDS: ${filtroEDS}`);
+  if (filtroGrupoCategoria) partes.push(`Grupo categoría: ${filtroGrupoCategoria}`);
+  if (filtroCategoria) {
+    const txt = document.getElementById('fil-cat-input')?.value;
+    if (txt) partes.push(`Categoría: ${txt}`);
+  }
+  if (filtroGrupo > 0) {
+    const g = _grupos.find(g => g.id === filtroGrupo);
+    if (g) partes.push(`Grupo: ${g.nombre}`);
+  }
+  return partes.join('  ·  ');
+}
+
+async function esperarFrame(n = 1) {
+  for (let i = 0; i < n; i++) await new Promise(r => requestAnimationFrame(r));
+}
+
+// Las tablas largas viven dentro de un contenedor con scroll interno (max-height + overflow),
+// que recorta lo que no se ve en pantalla. Para el informe hay que destaparlas mientras se
+// captura, pero con un límite generoso: alguna tabla (p. ej. Ranking EDS) puede traer cientos
+// de filas sin límite del servidor, y capturarla entera volvería la imagen gigante y muy lenta.
+const ALTO_MAXIMO_TABLA_PDF = 1100; // ~30 filas, suficiente para casi cualquier tabla real
+function destaparTablas(el) {
+  const contenedores = el.querySelectorAll('.tabla-scroll');
+  const originales = [];
+  contenedores.forEach(c => {
+    originales.push({ el: c, maxHeight: c.style.maxHeight, overflow: c.style.overflow });
+    c.style.maxHeight = ALTO_MAXIMO_TABLA_PDF + 'px';
+    c.style.overflow = 'hidden';
   });
+  return () => originales.forEach(o => { o.el.style.maxHeight = o.maxHeight; o.el.style.overflow = o.overflow; });
+}
+
+// Captura un elemento del DOM tal como se ve (fondo blanco, para que quede limpio en el PDF)
+async function capturarElemento(el) {
+  const restaurar = destaparTablas(el);
+  try {
+    await esperarFrame(1);
+    return await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: '#FFFFFF' });
+  } finally {
+    restaurar();
+  }
+}
+
+// Recorre las vistas del sidebar y captura cada una por separado, ya que solo una
+// está visible a la vez y los gráficos de las demás no tienen tamaño hasta mostrarlas.
+async function capturarVistas() {
+  const vistaOriginal = document.querySelector('.view.active')?.dataset.view;
+  const bloques = [];
+
+  // Mientras se genera el informe no debe llegar un refresco del dashboard a mitad de una
+  // captura (cambiaría datos o destruiría un gráfico justo cuando se está fotografiando).
+  _generandoInforme = true;
+
+  try {
+
+    const kpiRow = document.getElementById('kpi-row');
+    if (kpiRow && kpiRow.children.length) {
+      const canvas = await capturarElemento(kpiRow);
+      if (canvas.width > 0 && canvas.height > 0) {
+        bloques.push({ titulo: 'Indicadores del período', canvas });
+      }
+    }
+
+    for (const v of VISTAS) {
+      const el = document.querySelector(`.view[data-view="${v.id}"]`);
+      if (!el) continue;
+
+      mostrarVista(v.id);
+      await esperarFrame(2);
+      Object.values(charts).forEach(c => { try { c.resize(); } catch (e) {} });
+      await esperarFrame(2);
+
+      bloques.push({ titulo: v.label, canvas: await capturarElemento(el) });
+    }
+
+    if (vistaOriginal) {
+      mostrarVista(vistaOriginal);
+      await esperarFrame(1);
+      Object.values(charts).forEach(c => { try { c.resize(); } catch (e) {} });
+    }
+
+  } finally {
+    _generandoInforme = false;
+  }
+
+  return bloques;
+}
+
+// Arma el PDF: portada + un bloque por sección, con título de texto real (no parte de la
+// imagen) y sin cortar una tarjeta o gráfico a la mitad entre dos páginas cuando se puede evitar.
+async function generarPdfDashboard() {
+
+  const bloques = await capturarVistas();
 
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pdfW = pdf.internal.pageSize.getWidth();
   const pdfH = pdf.internal.pageSize.getHeight();
-  const imgH = (canvas.height * pdfW) / canvas.width;
-  const imgData = canvas.toDataURL('image/jpeg', 0.92);
+  const margen = 12;
+  const anchoUtil = pdfW - margen * 2;
 
-  let yPos = 0, remaining = imgH;
-  pdf.addImage(imgData, 'JPEG', 0, yPos, pdfW, imgH);
-  remaining -= pdfH;
+  const { periodo } = nombreReporte();
+  const ahora = new Date().toLocaleString('es-CO', {
+    timeZone: 'America/Bogota', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
 
-  while (remaining > 0) {
-    yPos -= pdfH;
-    pdf.addPage();
-    pdf.addImage(imgData, 'JPEG', 0, yPos, pdfW, imgH);
-    remaining -= pdfH;
+  // ── Portada ──
+  pdf.setFillColor(18, 43, 79); // #122B4F
+  pdf.rect(0, 0, pdfW, 58, 'F');
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setFontSize(20);
+  pdf.text('Informe CAC INSEPET', margen, 28);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setFontSize(11);
+  pdf.text(`Panel de supervisor · Período: ${periodo}`, margen, 40);
+  pdf.setFontSize(9);
+  pdf.text(`Generado el ${ahora}${supervNombre ? ' · ' + supervNombre : ''}`, margen, 48);
+
+  const filtros = filtrosTexto();
+  let y = 70;
+  if (filtros) {
+    pdf.setTextColor(107, 114, 128);
+    pdf.setFontSize(9);
+    pdf.text(`Filtros aplicados: ${filtros}`, margen, y);
+    y += 10;
   }
 
-  return { blob: pdf.output('blob'), canvas };
+  const nuevaPagina = () => {
+    pdf.addPage();
+    y = margen + 4;
+  };
+
+  const dibujarTitulo = (texto) => {
+    if (y > pdfH - margen - 14) nuevaPagina();
+    pdf.setFillColor(196, 30, 58); // #C41E3A, acento como en la app
+    pdf.rect(margen, y - 3.5, 1.4, 5.5, 'F');
+    pdf.setTextColor(31, 41, 55);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(11);
+    pdf.text(texto, margen + 4, y);
+    y += 7;
+  };
+
+  for (const b of bloques) {
+    const imgH = (b.canvas.height * anchoUtil) / b.canvas.width;
+    const imgData = b.canvas.toDataURL('image/jpeg', 0.94);
+    const altoDisponible = pdfH - margen - y;
+
+    // Si la sección completa no cabe en lo que queda de página, empieza una nueva
+    // (evita cortar una tarjeta o un gráfico a la mitad). Solo si ni siquiera cabe
+    // en una página entera se corta en varias, como último recurso.
+    if (imgH > altoDisponible && imgH <= pdfH - margen * 2 - 10) {
+      nuevaPagina();
+    }
+
+    dibujarTitulo(b.titulo);
+
+    if (y + imgH <= pdfH - margen) {
+      pdf.addImage(imgData, 'JPEG', margen, y, anchoUtil, imgH);
+      y += imgH + 10;
+    } else {
+      // Sección más alta que una página: se reparte en varias, empezando cada una arriba
+      let restante = imgH, offset = 0;
+      while (restante > 0) {
+        const disponible = pdfH - margen - y;
+        pdf.addImage(imgData, 'JPEG', margen, y - offset, anchoUtil, imgH);
+        restante -= disponible;
+        offset += disponible;
+        if (restante > 0) nuevaPagina();
+      }
+      y += 10;
+    }
+  }
+
+  // Numeración de páginas
+  const total = pdf.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(8);
+    pdf.setTextColor(156, 163, 175);
+    pdf.text(`Página ${i} de ${total}`, pdfW - margen, pdfH - 6, { align: 'right' });
+  }
+
+  return { blob: pdf.output('blob') };
 }
 
 async function exportarReporte(formato) {
@@ -264,8 +445,8 @@ async function exportarReporte(formato) {
     const { nombre } = nombreReporte();
 
     if (formato === 'jpg') {
-      const main = document.querySelector('main');
-      const canvas = await html2canvas(main, { scale: 2, useCORS: true, logging: false, backgroundColor: '#EEF0F6' });
+      const vistaActiva = document.querySelector('.view.active');
+      const canvas = await capturarElemento(vistaActiva || document.querySelector('main'));
       const link = document.createElement('a');
       link.download = `${nombre}.jpg`;
       link.href = canvas.toDataURL('image/jpeg', 0.92);
@@ -287,8 +468,102 @@ async function exportarReporte(formato) {
   }
 }
 
+/* ============================= */
+/* ENVIAR INFORME POR CORREO     */
+/* ============================= */
+
+function abrirModalCorreo() {
+
+  const modal = document.createElement('div');
+  modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50';
+  modal.id = 'modal-correo';
+
+  modal.innerHTML = `
+    <div class="bg-white rounded-3xl shadow-2xl w-[420px] max-w-full mx-4 overflow-hidden">
+      <div class="px-8 py-5" style="background:#122B4F">
+        <h2 class="text-white text-lg font-bold">Enviar informe por correo</h2>
+      </div>
+      <div class="p-8 space-y-4">
+        <p class="text-gray-500 text-sm">
+          Se adjunta un PDF con todas las secciones del panel (con los filtros y el período aplicados ahora).
+        </p>
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Destinatarios</label>
+          <input id="correo-destinatarios" type="text" placeholder="correo1@ejemplo.com, correo2@ejemplo.com"
+            class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
+          <p class="text-xs text-gray-400 mt-1">Separa varios correos con comas.</p>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Mensaje (opcional)</label>
+          <textarea id="correo-mensaje" rows="3" placeholder="Se agrega al cuerpo del correo"
+            class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"></textarea>
+        </div>
+        <p id="correo-estado" class="text-xs" style="min-height:16px"></p>
+        <div class="flex gap-3">
+          <button onclick="document.getElementById('modal-correo').remove()"
+            class="flex-1 py-3 rounded-xl font-semibold text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 transition">Cancelar</button>
+          <button id="btn-enviar-correo-confirmar" onclick="enviarInformePorCorreo()"
+            class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition" style="background:#1565C0">Enviar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  document.getElementById('correo-destinatarios').focus();
+}
+
+async function enviarInformePorCorreo() {
+
+  const btn = document.getElementById('btn-enviar-correo-confirmar');
+  const estado = document.getElementById('correo-estado');
+  const destinatarios = document.getElementById('correo-destinatarios').value.trim();
+  const mensaje = document.getElementById('correo-mensaje').value.trim();
+
+  if (!destinatarios) {
+    estado.textContent = 'Escribe al menos un correo';
+    estado.style.color = '#C41E3A';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Generando PDF...';
+  estado.textContent = '';
+
+  try {
+
+    const { blob } = await generarPdfDashboard();
+    const { nombre, periodo } = nombreReporte();
+
+    btn.textContent = 'Enviando...';
+
+    const form = new FormData();
+    form.append('informe', blob, `${nombre}.pdf`);
+    form.append('destinatarios', destinatarios);
+    form.append('periodo', periodo);
+    if (mensaje) form.append('mensaje', mensaje);
+
+    const response = await fetch(`${API}/api/supervisor/reporte/enviar`, { method: 'POST', body: form });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) throw new Error(data.error || 'No se pudo enviar el correo');
+
+    estado.textContent = `Enviado a ${data.enviados} destinatario${data.enviados === 1 ? '' : 's'}`;
+    estado.style.color = '#1B5E20';
+    setTimeout(() => document.getElementById('modal-correo')?.remove(), 1500);
+
+  } catch (e) {
+    console.error('Error enviando informe:', e);
+    estado.textContent = e.message || 'Error al enviar el correo';
+    estado.style.color = '#C41E3A';
+    btn.disabled = false;
+    btn.textContent = 'Enviar';
+  }
+}
+
 let _refreshTimer = null;
 function scheduleRefresh() {
+  if (_generandoInforme) return; // no interrumpir una captura de informe en curso
   clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(cargarDashboard, 800);
 }
@@ -302,6 +577,7 @@ async function cargarDashboard() {
     if (filtroAnalista)   qs += `&idAnalista=${filtroAnalista}`;
     if (filtroEDS)        qs += `&eds=${encodeURIComponent(filtroEDS)}`;
     if (filtroCategoria)  qs += `&idCategoria=${filtroCategoria}`;
+    if (filtroGrupoCategoria) qs += `&grupoCategoria=${encodeURIComponent(filtroGrupoCategoria)}`;
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,

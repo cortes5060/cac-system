@@ -270,6 +270,12 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
+            <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Grupo categoría</label>
+            <select id="fil-grupo-cat" class="fil-select" style="min-width:150px">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
             <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Categoría</label>
             <div class="buscable" style="min-width:170px">
               <div class="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden" style="height:34px">
@@ -298,10 +304,18 @@
                 </svg>
               </button>
               <div id="export-menu">
-                <button onclick="exportarReporte('jpg')">🖼 Imagen JPG</button>
-                <button onclick="exportarReporte('pdf')">📄 PDF</button>
+                <button onclick="exportarReporte('jpg')" title="Solo la vista actual">🖼 Imagen JPG (vista actual)</button>
+                <button onclick="exportarReporte('pdf')" title="Todas las secciones">📄 PDF (informe completo)</button>
               </div>
             </div>
+            <button id="btn-enviar-correo" onclick="abrirModalCorreo()"
+              class="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <polyline points="3 7 12 13 21 7"/>
+              </svg>
+              Enviar informe
+            </button>
           </div>
         </div>
       </div>
@@ -407,9 +421,6 @@
             </div>
           </div>
           <div class="sec-body p-5 space-y-5">
-            <p class="text-xs text-gray-400">
-              Tickets que aún no están en Cerrado ni Cancelado, agrupados por cuántos días llevan abiertos.
-            </p>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div>
                 <p class="section-title">Tickets abiertos por antigüedad</p>
@@ -490,11 +501,6 @@
             </div>
           </div>
           <div class="sec-body p-5 space-y-5">
-
-            <p class="text-xs text-gray-400">
-              Tiempos medidos por el analista en cada chat o llamada. Los promedios usan solo casos finalizados; un caso que pasa de 12 horas abierto se finaliza solo y cuenta 12 horas. Si un caso se pasa a otro analista, cada uno suma solo su propio tiempo.
-              Los cortes por categoría, prioridad y estatus solo incluyen casos con ticket vinculado a 2WD.
-            </p>
 
             <div class="grid grid-cols-2 xl:grid-cols-5 gap-3" id="kpi-tiempos"></div>
 

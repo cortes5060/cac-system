@@ -24,6 +24,10 @@ database/*.zip
 *.bak
 **/*.bak
 
+# ── Paquetes de despliegue (llevan el .env real con credenciales) ─
+backend/*.zip
+**/cac-backend*.zip
+
 # ── Logs ──────────────────────────────────────────────────
 logs/
 *.log

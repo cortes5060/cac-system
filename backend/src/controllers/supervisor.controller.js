@@ -13,10 +13,11 @@ function periodo(req) {
 
 function filtros(req) {
   return {
-    idAnalista:         req.query.idAnalista  ? parseInt(req.query.idAnalista)  : null,
-    eds:                req.query.eds         || null,
-    idCategoria:        req.query.idCategoria ? parseInt(req.query.idCategoria) : null,
-    idGrupoColaborador: req.query.idGrupo     ? parseInt(req.query.idGrupo)     : null,
+    idAnalista:         req.query.idAnalista    ? parseInt(req.query.idAnalista)  : null,
+    eds:                req.query.eds           || null,
+    idCategoria:        req.query.idCategoria   ? parseInt(req.query.idCategoria) : null,
+    grupoCategoria:     req.query.grupoCategoria || null,
+    idGrupoColaborador: req.query.idGrupo       ? parseInt(req.query.idGrupo)     : null,
   };
 }
 
@@ -26,8 +27,14 @@ function addInputs(r, p, f) {
   if (f.idAnalista)           r.input('fAna', sql.Int,      f.idAnalista);
   if (f.eds)                  r.input('fEDS', sql.NVarChar, f.eds);
   if (f.idCategoria)          r.input('fCat', sql.Int,      f.idCategoria);
+  if (f.grupoCategoria)       r.input('fGrupoCat', sql.NVarChar, f.grupoCategoria);
   if (f.idGrupoColaborador)   r.input('fGrp', sql.Int,      f.idGrupoColaborador);
 }
+
+// Una categoría es del tipo "Autoatendido - Datafono / Cambio Datafono". El grupo amplio
+// ("Autoatendido") es lo que va antes del primer " - " dentro de categoriaprincipal.
+const SQL_GRUPO_CATEGORIA =
+  `LEFT(RTRIM(categoriaprincipal), CHARINDEX(' - ', RTRIM(categoriaprincipal) + ' - ') - 1)`;
 
 function periodoWhere(p, alias = '') {
   const pre = alias ? alias + '.' : '';
@@ -42,6 +49,7 @@ function filtroWhere(f, alias = '') {
   if (f.idAnalista)          w += ` AND ${pre}escalado            = @fAna`;
   if (f.eds)                 w += ` AND ${pre}EDS                 = @fEDS`;
   if (f.idCategoria)         w += ` AND ${pre}idCategoria         = @fCat`;
+  if (f.grupoCategoria)      w += ` AND ${pre}idCategoria IN (SELECT id FROM categorias WHERE ${SQL_GRUPO_CATEGORIA} = @fGrupoCat)`;
   if (f.idGrupoColaborador)  w += ` AND ${pre}idGrupoColaborador  = @fGrp`;
   return w;
 }
@@ -436,6 +444,7 @@ function tiemposWhere(p, f) {
                                    WHERE x.idCaso = c.id AND (x.deAnalista = @fAna OR x.aAnalista = @fAna)))`;
   if (f.eds)                 w += ' AND COALESCE(t.EDS, c.nombreEDS) = @fEDS';
   if (f.idCategoria)         w += ' AND t.idCategoria = @fCat';
+  if (f.grupoCategoria)      w += ` AND t.idCategoria IN (SELECT id FROM categorias WHERE ${SQL_GRUPO_CATEGORIA} = @fGrupoCat)`;
   if (f.idGrupoColaborador)  w += ' AND t.idGrupoColaborador = @fGrp';
   return w;
 }

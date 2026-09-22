@@ -22,6 +22,24 @@ const getCategorias = async (req, res) => {
   }
 };
 
+// Grupo amplio de categoría (ej. "Autoatendido"), derivado del texto antes del primer
+// " - " en categoriaprincipal. No existe como tabla propia, es agrupar por ese prefijo.
+const getGruposCategoria = async (req, res) => {
+  try {
+    const connection = await pool;
+    const result = await connection.request()
+      .query(`
+        SELECT DISTINCT LEFT(RTRIM(categoriaprincipal), CHARINDEX(' - ', RTRIM(categoriaprincipal) + ' - ') - 1) AS nombre
+        FROM categorias
+        WHERE activo = 1 AND categoriaprincipal IS NOT NULL AND RTRIM(categoriaprincipal) != ''
+        ORDER BY nombre
+      `);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const getTiposCaso = async (req, res) => {
   try {
     const connection = await pool;
@@ -53,4 +71,4 @@ const getGrupos = async (req, res) => {
   }
 };
 
-module.exports = { getEstaciones, getCategorias, getTiposCaso, getAnalistas, getGrupos };
+module.exports = { getEstaciones, getCategorias, getGruposCategoria, getTiposCaso, getAnalistas, getGrupos };

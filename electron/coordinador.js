@@ -11,12 +11,6 @@ if (!coordId) {
 window.addEventListener('load', () => {
     document.getElementById('coordNombre').textContent = coordNombre || '';
     activarTab('analistas');
-
-    if (localStorage.getItem('coordSonidoLogin') === '1') {
-        localStorage.removeItem('coordSonidoLogin');
-        new Audio('sonidos/por_fin_apareciste.mp3').play()
-            .catch(err => console.warn('No se pudo reproducir el sonido de bienvenida:', err));
-    }
 });
 
 function cerrarSesion() {

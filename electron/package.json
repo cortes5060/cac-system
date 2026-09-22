@@ -1,0 +1,60 @@
+{
+  "name": "cac-insepet",
+  "version": "1.0.0",
+  "description": "Centro de Atención al Cliente - INSEPET",
+  "main": "main.js",
+  "author": "Esteban Insepet",
+  "license": "ISC",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.insepet.cac",
+    "productName": "CAC INSEPET",
+    "win": {
+      "icon": "img/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/.cache",
+      "!**/*.map"
+    ],
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "devDependencies": {
+    "chart.js": "^4.5.1",
+    "electron": "^40.10.4",
+    "electron-builder": "^25.1.8",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "tailwindcss": "^3.4.19"
+  }
+}

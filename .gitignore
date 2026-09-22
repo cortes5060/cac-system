@@ -1,0 +1,45 @@
+# ── Dependencias ──────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Variables de entorno (contienen credenciales) ─────────
+.env
+**/.env
+
+# ── Build / distribución ──────────────────────────────────
+dist/
+**/dist/
+build/
+**/build/
+win-unpacked/
+**/win-unpacked/
+builder-debug.yml
+builder-effective-config.yaml
+**/*.blockmap
+
+# ── Base de datos (solo archivos de datos de SQL Server) ───
+database/BD
+database/CAC
+database/*.zip
+*.bak
+**/*.bak
+
+# ── Logs ──────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── Sistema operativo ─────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ── Claude Code (memoria y archivos internos) ─────────────
+.claude/
+**/.claude/

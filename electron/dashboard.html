@@ -1,0 +1,197 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Sistema CAC - Dashboard</title>
+  <link rel="stylesheet" href="vendor/tailwind.min.css">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #EEF0F6; }
+    .topnav { background: linear-gradient(135deg, #0D1F3A 0%, #122B4F 60%, #1a3a6b 100%); }
+    .card { background: white; border-radius: 1.25rem; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
+    #switchEstado { transition: background-color 0.3s; }
+    #circuloSwitch { transition: transform 0.3s; }
+    .tab-btn { transition: all 0.2s; }
+    .tab-btn.active { background: #122B4F; color: white; }
+    /* Botones de dos opciones (tabla "Mis casos") */
+    .seg { display: inline-flex; max-width: 100%; background: #E5E7EB; border-radius: 9999px; padding: 3px; gap: 2px; }
+    .seg button { flex: 1; padding: 5px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: #6B7280;
+                  white-space: nowrap; transition: all 0.15s; }
+    .seg button:hover:not(:disabled):not(.on) { color: #111827; background: #F3F4F6; }
+    .seg button.on-green { background: #1B5E20; color: #fff; }
+    .seg button.on-red   { background: #C41E3A; color: #fff; }
+    .seg button.on-dark  { background: #122B4F; color: #fff; }
+    .seg button:disabled { cursor: not-allowed; }
+    .seg.locked { opacity: 0.55; }
+    .tiempos { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; row-gap: 2px; font-size: 11px; align-items: baseline; }
+    .tiempos dt { color: #6B7280; }
+    .tiempos dd { margin: 0; font-weight: 700; color: #111827; font-family: ui-monospace, Consolas, monospace; }
+    .pill { display: inline-block; padding: 3px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: #fff; white-space: nowrap; }
+    .pill-green { background: #1B5E20; }
+    .pill-red   { background: #C41E3A; }
+    .pill-dark  { background: #122B4F; }
+    .pill-gray  { background: #9CA3AF; }
+    .fade-in { animation: fi 0.3s ease; }
+    @keyframes fi { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  </style>
+</head>
+
+<body class="min-h-screen">
+
+  <!-- ===== TOP NAV ===== -->
+  <nav class="topnav px-8 py-4 flex justify-between items-center shadow-xl">
+
+    <!-- Logo -->
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:#C41E3A">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </div>
+      <div>
+        <div class="font-black text-white text-base tracking-[0.18em] leading-none">INSEPET</div>
+        <div class="text-blue-300 text-xs tracking-widest">SISTEMA CAC</div>
+      </div>
+    </div>
+
+    <!-- Right: analyst + toggle -->
+    <div class="flex items-center gap-5">
+      <div class="text-right hidden sm:block">
+        <div class="text-blue-300 text-xs font-semibold tracking-widest uppercase">Analista</div>
+        <div id="nombreAnalista" class="text-white font-bold text-sm"></div>
+      </div>
+      <div class="flex items-center gap-3 bg-white bg-opacity-10 border border-white border-opacity-15 rounded-2xl px-4 py-2.5">
+        <span id="estadoTexto" class="font-semibold text-sm text-white"></span>
+        <button onclick="cambiarEstado()" id="switchEstado"
+          class="relative inline-flex h-7 w-14 items-center rounded-full bg-gray-600 transition-colors duration-300">
+          <span id="circuloSwitch"
+            class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform duration-300 ml-1">
+          </span>
+        </button>
+      </div>
+      <button onclick="cerrarSesion()"
+        class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:bg-white hover:bg-opacity-10 transition border border-white border-opacity-20">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Salir
+      </button>
+    </div>
+
+  </nav>
+
+  <!-- ===== MAIN ===== -->
+  <main class="max-w-6xl mx-auto px-6 py-7 space-y-6">
+
+    <!-- TOP ROW -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- STATS CARD -->
+      <div class="card p-6 flex flex-col gap-4">
+
+        <div class="flex items-center gap-2">
+          <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
+          <span class="text-xs font-bold text-gray-400 tracking-widest uppercase">Mi actividad</span>
+        </div>
+
+        <div class="rounded-2xl p-5 flex items-center justify-between"
+          style="background:linear-gradient(135deg,#122B4F,#1565C0)">
+          <div>
+            <div class="text-blue-200 text-xs font-semibold tracking-wide uppercase mb-1">Casos hoy</div>
+            <div class="text-white font-black text-5xl leading-none" id="contadorCasos">0</div>
+          </div>
+          <div class="w-14 h-14 rounded-2xl bg-white bg-opacity-15 flex items-center justify-center">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
+              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+              <rect x="9" y="3" width="6" height="4" rx="1"/>
+              <path d="M9 12h6M9 16h4"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- Mobile: analista name -->
+        <div class="sm:hidden rounded-xl bg-gray-50 px-4 py-3 border border-gray-100">
+          <div class="text-xs text-gray-400 mb-0.5">Analista activo</div>
+          <div class="font-bold text-gray-800 text-sm" id="nombreAnalistaMobile"></div>
+        </div>
+
+      </div>
+
+      <!-- QUEUE CARD -->
+      <div class="card p-6 lg:col-span-2">
+
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-1 h-5 rounded-full" style="background:#C41E3A"></div>
+          <span class="text-xs font-bold text-gray-400 tracking-widest uppercase">Cola de atención</span>
+        </div>
+
+        <div id="listaActivos" class="space-y-2.5">
+          <div class="text-gray-400 text-sm text-center py-4">Sin analistas activos</div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- MODULES CARD -->
+    <div class="card overflow-hidden">
+
+      <!-- Tab buttons -->
+      <div class="flex gap-1 px-5 pt-4 border-b border-gray-100">
+        <button onclick="activarTab('cx3')" id="tab-cx3"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          📞 Información 3CX
+        </button>
+        <button onclick="activarTab('buscar')" id="tab-buscar"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          🔎 Buscar casos
+        </button>
+        <button onclick="activarTab('ult10')" id="tab-ult10"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          🕘 Últimos 10 casos
+        </button>
+        <button onclick="activarTab('aa')" id="tab-aa"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          📊 Métricas
+        </button>
+        <button onclick="activarTab('ticket')" id="tab-ticket"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
+          🎫 Crear Ticket
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div id="moduloContenido" class="p-7">
+        <div class="flex flex-col items-center justify-center py-12 text-gray-300">
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" class="mb-3">
+            <rect x="2" y="3" width="20" height="14" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+          <p class="text-sm font-medium text-gray-400">Selecciona un módulo para comenzar</p>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script src="vendor/chart.min.js"></script>
+  <script src="config.js"></script>
+  <script src="socket.io.min.js"></script>
+  <script>
+    function activarTab(tipo) {
+      ['cx3','buscar','ult10','aa','ticket'].forEach(t => {
+        const tab = document.getElementById('tab-' + t);
+        if (tab) tab.classList.remove('active');
+      });
+      const active = document.getElementById('tab-' + tipo);
+      if (active) active.classList.add('active');
+      mostrarModulo(tipo);
+    }
+  </script>
+  <script src="dashboard.js"></script>
+
+</body>
+</html>

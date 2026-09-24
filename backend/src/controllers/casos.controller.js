@@ -1,21 +1,19 @@
-const { sql, pool } = require('../config/db');
+const { pool, query, segundos } = require('../config/db');
 
 const TIPOS = ['CHAT', 'LLAMADA'];
 
 const getCasos = async (req, res) => {
   try {
 
-    const connection = await pool;
-
-    const result = await connection.request()
-      .query(`
-        SELECT TOP 10 a.nombre, c.numerochat, c.fecha, c.id, c.tipo, c.nombreEDS, c.ticketReferencia2WD
+    const result = await query(`
+        SELECT a.nombre, c.numerochat, c.fecha, c.id, c.tipo, c."nombreEDS", c."ticketReferencia2WD"
         FROM casos3cx c
-        JOIN analistas a ON c.idAnalista = a.id
+        JOIN analistas a ON c."idAnalista" = a.id
         ORDER BY c.fecha DESC, c.id DESC
+        LIMIT 10
       `);
 
-    res.json(result.recordset);
+    res.json(result.rows);
 
   } catch (error) {
 
@@ -38,48 +36,44 @@ const getMisCasos = async (req, res) => {
 
   try {
 
-    const connection = await pool;
-
-    const result = await connection.request()
-      .input('idAnalista', sql.Int, idAnalista)
-      .query(`
+    const result = await query(`
         SELECT
-          c.id, c.numerochat, c.nombreEDS, c.tipo, c.fecha, c.ticketReferencia2WD,
-          t.id AS idTicket, es.nombre AS estatusTicket,
-          c.idAnalista, ah.nombre AS titular,
-          (SELECT TOP 1 ad.nombre FROM casos3cx_traspasos tr JOIN analistas ad ON ad.id = tr.deAnalista
-            WHERE tr.idCaso = c.id ORDER BY tr.id DESC) AS recibidoDe,
+          c.id, c.numerochat, c."nombreEDS", c.tipo, c.fecha, c."ticketReferencia2WD",
+          t.id AS "idTicket", es.nombre AS "estatusTicket",
+          c."idAnalista", ah.nombre AS titular,
+          (SELECT ad.nombre FROM casos3cx_traspasos tr JOIN analistas ad ON ad.id = tr."deAnalista"
+            WHERE tr."idCaso" = c.id ORDER BY tr.id DESC LIMIT 1) AS "recibidoDe",
           -- estado actual = último tramo; NULL si el caso no tiene seguimiento (casos anteriores a la migración)
-          (SELECT TOP 1 estado FROM casos3cx_estados WHERE idCaso = c.id ORDER BY id DESC) AS estado,
-          ISNULL(e.vecesActivo, 0)     AS vecesActivo,
-          ISNULL(e.vecesInactivo, 0)   AS vecesInactivo,
-          ISNULL(e.segActivo, 0)       AS segActivo,
-          ISNULL(e.segInactivo, 0)     AS segInactivo
+          (SELECT estado FROM casos3cx_estados WHERE "idCaso" = c.id ORDER BY id DESC LIMIT 1) AS estado,
+          COALESCE(e."vecesActivo", 0)     AS "vecesActivo",
+          COALESCE(e."vecesInactivo", 0)   AS "vecesInactivo",
+          COALESCE(e."segActivo", 0)       AS "segActivo",
+          COALESCE(e."segInactivo", 0)     AS "segInactivo"
         FROM casos3cx c
         LEFT JOIN (
           SELECT
-            idCaso,
-            SUM(CASE WHEN estado = 'ACTIVO'    THEN 1 ELSE 0 END) AS vecesActivo,
-            SUM(CASE WHEN estado = 'INACTIVO'  THEN 1 ELSE 0 END) AS vecesInactivo,
+            "idCaso",
+            SUM(CASE WHEN estado = 'ACTIVO'    THEN 1 ELSE 0 END)::int AS "vecesActivo",
+            SUM(CASE WHEN estado = 'INACTIVO'  THEN 1 ELSE 0 END)::int AS "vecesInactivo",
             SUM(CASE WHEN estado = 'ACTIVO'
-                     THEN DATEDIFF(SECOND, inicio, ISNULL(fin, GETDATE())) ELSE 0 END) AS segActivo,
+                     THEN ${segundos('inicio', 'fin')} ELSE 0 END)::int AS "segActivo",
             SUM(CASE WHEN estado = 'INACTIVO'
-                     THEN DATEDIFF(SECOND, inicio, ISNULL(fin, GETDATE())) ELSE 0 END) AS segInactivo
+                     THEN ${segundos('inicio', 'fin')} ELSE 0 END)::int AS "segInactivo"
           FROM casos3cx_estados
-          WHERE idAnalista = @idAnalista
-          GROUP BY idCaso
-        ) e ON e.idCaso = c.id
-        LEFT JOIN tickets t  ON t.codigo2wd = c.ticketReferencia2WD
-        LEFT JOIN estatus es ON es.id = t.idEstatus
-        LEFT JOIN analistas ah ON ah.id = c.idAnalista
-        WHERE (c.idAnalista = @idAnalista
+          WHERE "idAnalista" = @idAnalista
+          GROUP BY "idCaso"
+        ) e ON e."idCaso" = c.id
+        LEFT JOIN tickets t  ON t.codigo2wd = c."ticketReferencia2WD"
+        LEFT JOIN estatus es ON es.id = t."idEstatus"
+        LEFT JOIN analistas ah ON ah.id = c."idAnalista"
+        WHERE (c."idAnalista" = @idAnalista
                OR EXISTS (SELECT 1 FROM casos3cx_traspasos tr
-                           WHERE tr.idCaso = c.id AND (tr.deAnalista = @idAnalista OR tr.aAnalista = @idAnalista)))
-          AND CAST(c.fecha AS DATE) = CAST(GETDATE() AS DATE)
+                           WHERE tr."idCaso" = c.id AND (tr."deAnalista" = @idAnalista OR tr."aAnalista" = @idAnalista)))
+          AND c.fecha::date = CURRENT_DATE
         ORDER BY c.fecha DESC, c.id DESC
-      `);
+      `, { idAnalista });
 
-    res.json(result.recordset);
+    res.json(result.rows);
 
   } catch (error) {
 
@@ -104,9 +98,10 @@ function mensajeTicketDuplicado(ticket, otro) {
   return `El ticket ${ticket} ya está vinculado${donde}. Cada ticket solo puede ir en un caso.`;
 }
 
-// 2601 / 2627: violación del índice único (respaldo si dos analistas guardan el mismo ticket a la vez)
+// 23505: violación del índice único del ticket (respaldo si dos analistas guardan el mismo ticket a la vez).
+// Se mira el nombre del índice para no confundirlo con otro choque, p. ej. el de la llave primaria.
 function esDuplicado(error) {
-  return error && (error.number === 2601 || error.number === 2627);
+  return error && error.code === '23505' && /ticket/i.test(error.constraint || '');
 }
 
 // Busca entre todos los casos del analista (chat y llamada), con filtros opcionales
@@ -126,73 +121,72 @@ const buscarCasos = async (req, res) => {
 
   try {
 
-    const connection = await pool;
-    const request = connection.request().input('idAnalista', sql.Int, idAnalista);
+    const params = { idAnalista };
 
     // Mis casos: los que tengo ahora y los que pasé o recibí
-    let where = `(c.idAnalista = @idAnalista
+    let where = `(c."idAnalista" = @idAnalista
       OR EXISTS (SELECT 1 FROM casos3cx_traspasos tr
-                  WHERE tr.idCaso = c.id AND (tr.deAnalista = @idAnalista OR tr.aAnalista = @idAnalista)))`;
+                  WHERE tr."idCaso" = c.id AND (tr."deAnalista" = @idAnalista OR tr."aAnalista" = @idAnalista)))`;
 
     if (q) {
       // Escapa los comodines de LIKE para que el texto se busque literal
-      const like = '%' + q.replace(/[%_\[]/g, m => '[' + m + ']') + '%';
-      request.input('like', sql.NVarChar(210), like);
-      where += ' AND (c.numerochat LIKE @like OR c.nombreEDS LIKE @like OR c.ticketReferencia2WD LIKE @like)';
+      params.like = '%' + q.replace(/[\\%_]/g, m => '\\' + m) + '%';
+      where += ` AND (c.numerochat::text ILIKE @like OR c."nombreEDS" ILIKE @like OR c."ticketReferencia2WD" ILIKE @like)`;
     }
 
     if (TIPOS.includes(tipo)) {
-      request.input('tipo', sql.VarChar(10), tipo);
+      params.tipo = tipo;
       where += ' AND c.tipo = @tipo';
     }
 
     if (desde) {
-      request.input('desde', sql.Date, desde);
-      where += ' AND CAST(c.fecha AS DATE) >= @desde';
+      params.desde = desde;
+      where += ' AND c.fecha::date >= @desde::date';
     }
 
     if (hasta) {
-      request.input('hasta', sql.Date, hasta);
-      where += ' AND CAST(c.fecha AS DATE) <= @hasta';
+      params.hasta = hasta;
+      where += ' AND c.fecha::date <= @hasta::date';
     }
 
     if (sinTicket) {
-      where += ' AND c.ticketReferencia2WD IS NULL';
+      where += ' AND c."ticketReferencia2WD" IS NULL';
     }
 
-    const result = await request.query(`
-      SELECT TOP 200
-        c.id, c.numerochat, c.nombreEDS, c.tipo, c.fecha, c.ticketReferencia2WD,
-        c.idAnalista, ah.nombre AS titular,
-        (SELECT TOP 1 ad.nombre FROM casos3cx_traspasos tr JOIN analistas ad ON ad.id = tr.deAnalista
-          WHERE tr.idCaso = c.id ORDER BY tr.id DESC) AS recibidoDe,
-        (SELECT TOP 1 estado FROM casos3cx_estados WHERE idCaso = c.id ORDER BY id DESC) AS estado,
-        ISNULL(s.vecesActivo, 0)   AS vecesActivo,
-        ISNULL(s.vecesInactivo, 0) AS vecesInactivo,
-        ISNULL(s.segActivo, 0)   AS segActivo,
-        ISNULL(s.segInactivo, 0) AS segInactivo,
-        t.id     AS idTicket,
-        es.nombre AS estatusTicket
+    const result = await query(`
+      SELECT
+        c.id, c.numerochat, c."nombreEDS", c.tipo, c.fecha, c."ticketReferencia2WD",
+        c."idAnalista", ah.nombre AS titular,
+        (SELECT ad.nombre FROM casos3cx_traspasos tr JOIN analistas ad ON ad.id = tr."deAnalista"
+          WHERE tr."idCaso" = c.id ORDER BY tr.id DESC LIMIT 1) AS "recibidoDe",
+        (SELECT estado FROM casos3cx_estados WHERE "idCaso" = c.id ORDER BY id DESC LIMIT 1) AS estado,
+        COALESCE(s."vecesActivo", 0)   AS "vecesActivo",
+        COALESCE(s."vecesInactivo", 0) AS "vecesInactivo",
+        COALESCE(s."segActivo", 0)   AS "segActivo",
+        COALESCE(s."segInactivo", 0) AS "segInactivo",
+        t.id     AS "idTicket",
+        es.nombre AS "estatusTicket"
       FROM casos3cx c
-      OUTER APPLY (
+      LEFT JOIN LATERAL (
         SELECT
-          SUM(CASE WHEN e.estado = 'ACTIVO'    THEN 1 ELSE 0 END) AS vecesActivo,
-          SUM(CASE WHEN e.estado = 'INACTIVO'  THEN 1 ELSE 0 END) AS vecesInactivo,
+          SUM(CASE WHEN e.estado = 'ACTIVO'    THEN 1 ELSE 0 END)::int AS "vecesActivo",
+          SUM(CASE WHEN e.estado = 'INACTIVO'  THEN 1 ELSE 0 END)::int AS "vecesInactivo",
           SUM(CASE WHEN e.estado = 'ACTIVO'
-                   THEN DATEDIFF(SECOND, e.inicio, ISNULL(e.fin, GETDATE())) ELSE 0 END) AS segActivo,
+                   THEN ${segundos('e.inicio', 'e.fin')} ELSE 0 END)::int AS "segActivo",
           SUM(CASE WHEN e.estado = 'INACTIVO'
-                   THEN DATEDIFF(SECOND, e.inicio, ISNULL(e.fin, GETDATE())) ELSE 0 END) AS segInactivo
+                   THEN ${segundos('e.inicio', 'e.fin')} ELSE 0 END)::int AS "segInactivo"
         FROM casos3cx_estados e
-        WHERE e.idCaso = c.id AND e.idAnalista = @idAnalista
-      ) s
-      LEFT JOIN tickets t  ON t.codigo2wd = c.ticketReferencia2WD
-      LEFT JOIN estatus es ON es.id = t.idEstatus
-      LEFT JOIN analistas ah ON ah.id = c.idAnalista
+        WHERE e."idCaso" = c.id AND e."idAnalista" = @idAnalista
+      ) s ON true
+      LEFT JOIN tickets t  ON t.codigo2wd = c."ticketReferencia2WD"
+      LEFT JOIN estatus es ON es.id = t."idEstatus"
+      LEFT JOIN analistas ah ON ah.id = c."idAnalista"
       WHERE ${where}
       ORDER BY c.fecha DESC, c.id DESC
-    `);
+      LIMIT 200
+    `, params);
 
-    res.json(result.recordset);
+    res.json(result.rows);
 
   } catch (error) {
 
@@ -220,66 +214,57 @@ const actualizarTicketCaso = async (req, res) => {
 
   try {
 
-    const connection = await pool;
-
-    const caso = await connection.request()
-      .input('idCaso', sql.Int, idCaso)
-      .input('idAnalista', sql.Int, idAnalista)
-      .query(`
-        SELECT c.idAnalista,
-          (SELECT COUNT(*) FROM casos3cx_traspasos tr
-            WHERE tr.idCaso = c.id AND (tr.deAnalista = @idAnalista OR tr.aAnalista = @idAnalista)) AS participo
+    const caso = await query(`
+        SELECT c."idAnalista",
+          (SELECT COUNT(*)::int FROM casos3cx_traspasos tr
+            WHERE tr."idCaso" = c.id AND (tr."deAnalista" = @idAnalista OR tr."aAnalista" = @idAnalista)) AS participo
         FROM casos3cx c WHERE c.id = @idCaso
-      `);
+      `, { idCaso, idAnalista });
 
-    if (caso.recordset.length === 0) {
+    if (caso.rows.length === 0) {
       return res.status(404).json({ error: 'Caso no encontrado' });
     }
 
     // Solo quien tiene el caso, o quien lo pasó / recibió, puede vincular el ticket
-    if (caso.recordset[0].idAnalista !== idAnalista && caso.recordset[0].participo === 0) {
+    if (caso.rows[0].idAnalista !== idAnalista && caso.rows[0].participo === 0) {
       return res.status(403).json({ error: 'El caso pertenece a otro analista' });
     }
 
     if (t.ticket) {
 
-      const dup = await connection.request()
-        .input('idCaso', sql.Int, idCaso)
-        .input('ticket', sql.NVarChar(50), t.ticket)
-        .query(`
-          SELECT TOP 1 c.id, c.numerochat, a.nombre
+      const dup = await query(`
+          SELECT c.id, c.numerochat, a.nombre
           FROM casos3cx c
-          JOIN analistas a ON a.id = c.idAnalista
-          WHERE c.ticketReferencia2WD = @ticket AND c.id <> @idCaso
-        `);
+          JOIN analistas a ON a.id = c."idAnalista"
+          WHERE c."ticketReferencia2WD" = @ticket AND c.id <> @idCaso
+          LIMIT 1
+        `, { idCaso, ticket: t.ticket });
 
-      if (dup.recordset.length) {
-        return res.status(409).json({ error: mensajeTicketDuplicado(t.ticket, dup.recordset[0]) });
+      if (dup.rows.length) {
+        return res.status(409).json({ error: mensajeTicketDuplicado(t.ticket, dup.rows[0]) });
       }
     }
 
-    await connection.request()
-      .input('idCaso', sql.Int, idCaso)
-      .input('ticket', sql.NVarChar(50), t.ticket)
-      .query(`UPDATE casos3cx SET ticketReferencia2WD = @ticket WHERE id = @idCaso`);
+    await query(
+      `UPDATE casos3cx SET "ticketReferencia2WD" = @ticket WHERE id = @idCaso`,
+      { idCaso, ticket: t.ticket }
+    );
 
     let existeEn2WD = false;
     let estatus = null;
 
     if (t.ticket) {
 
-      const info = await connection.request()
-        .input('ticket', sql.NVarChar(50), t.ticket)
-        .query(`
+      const info = await query(`
           SELECT
-            (SELECT TOP 1 es.nombre
-               FROM tickets tk LEFT JOIN estatus es ON es.id = tk.idEstatus
-              WHERE tk.codigo2wd = @ticket) AS estatus,
-            (SELECT COUNT(*) FROM tickets WHERE codigo2wd = @ticket) AS existe
-        `);
+            (SELECT es.nombre
+               FROM tickets tk LEFT JOIN estatus es ON es.id = tk."idEstatus"
+              WHERE tk.codigo2wd = @ticket LIMIT 1) AS estatus,
+            (SELECT COUNT(*)::int FROM tickets WHERE codigo2wd = @ticket) AS existe
+        `, { ticket: t.ticket });
 
-      existeEn2WD = info.recordset[0].existe > 0;
-      estatus     = info.recordset[0].estatus;
+      existeEn2WD = info.rows[0].existe > 0;
+      estatus     = info.rows[0].estatus;
     }
 
     res.json({ ok: true, ticket: t.ticket, existeEn2WD, estatus });
@@ -325,27 +310,26 @@ const tomarCaso = async (req, res) => {
     return res.status(400).json({ error: 'idAnalista es obligatorio para llamadas' });
   }
 
-  const connection = await pool;
-  const transaction = new sql.Transaction(connection);
+  let client;
 
   try {
 
-    await transaction.begin();
+    client = await pool.connect();
+    await client.query('BEGIN');
 
     if (ticket.ticket) {
 
-      const dup = await new sql.Request(transaction)
-        .input('ticket', sql.NVarChar(50), ticket.ticket)
-        .query(`
-          SELECT TOP 1 c.id, c.numerochat, a.nombre
+      const dup = await query(`
+          SELECT c.id, c.numerochat, a.nombre
           FROM casos3cx c
-          JOIN analistas a ON a.id = c.idAnalista
-          WHERE c.ticketReferencia2WD = @ticket
-        `);
+          JOIN analistas a ON a.id = c."idAnalista"
+          WHERE c."ticketReferencia2WD" = @ticket
+          LIMIT 1
+        `, { ticket: ticket.ticket }, client);
 
-      if (dup.recordset.length) {
-        await transaction.rollback();
-        return res.status(409).json({ error: mensajeTicketDuplicado(ticket.ticket, dup.recordset[0]) });
+      if (dup.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: mensajeTicketDuplicado(ticket.ticket, dup.rows[0]) });
       }
     }
 
@@ -353,65 +337,63 @@ const tomarCaso = async (req, res) => {
 
     if (tipo === 'CHAT') {
 
-      // Obtener analista siguiente
-      const analistaResult = await new sql.Request(transaction).query(`
-        SELECT TOP 1 id, nombre, orden
-        FROM analistas WITH (UPDLOCK, ROWLOCK)
-        WHERE activo = 1
+      // Obtener analista siguiente (su fila queda bloqueada hasta el COMMIT)
+      const analistaResult = await query(`
+        SELECT id, nombre, orden
+        FROM analistas
+        WHERE activo = '1'
         ORDER BY orden
-      `);
+        LIMIT 1
+        FOR UPDATE
+      `, {}, client);
 
-      if (analistaResult.recordset.length === 0) {
+      if (analistaResult.rows.length === 0) {
 
-        await transaction.rollback();
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'No hay analistas activos' });
 
       }
 
-      const analista = analistaResult.recordset[0];
+      const analista = analistaResult.rows[0];
       idAnalista = analista.id;
 
       // Ajustar orden
-      await new sql.Request(transaction)
-        .input('orden', sql.Int, analista.orden)
-        .query(`
+      await query(`
           UPDATE analistas
           SET orden = orden - 1
-          WHERE activo = 1
+          WHERE activo = '1'
           AND orden > @orden
-        `);
+        `, { orden: analista.orden }, client);
 
       // Obtener último orden
-      const maxOrdenResult = await new sql.Request(transaction).query(`
-        SELECT count(orden) AS maxOrden
+      const maxOrdenResult = await query(`
+        SELECT COUNT(orden)::int AS "maxOrden"
         FROM analistas
-        WHERE activo = 1
-      `);
+        WHERE activo = '1'
+      `, {}, client);
 
-      const maxOrden = maxOrdenResult.recordset[0].maxOrden;
+      const maxOrden = maxOrdenResult.rows[0].maxOrden;
 
       // Enviar analista al final
       if (analista.orden !== maxOrden) {
-        await new sql.Request(transaction)
-          .input('nuevoOrden', sql.Int, maxOrden)
-          .input('idAnalistaCola', sql.Int, analista.id)
-          .query(`
+        await query(`
             UPDATE analistas
             SET orden = @nuevoOrden
             WHERE id = @idAnalistaCola
-          `);
+          `, { nuevoOrden: maxOrden, idAnalistaCola: analista.id }, client);
       }
 
     } else {
 
       // Llamada: se registra a nombre de quien la atendió y la cola no se mueve
-      const analistaResult = await new sql.Request(transaction)
-        .input('idAnalista', sql.Int, idAnalistaLlamada)
-        .query(`SELECT id FROM analistas WHERE id = @idAnalista AND idRol = 1`);
+      const analistaResult = await query(
+        `SELECT id FROM analistas WHERE id = @idAnalista AND "idRol" = 1`,
+        { idAnalista: idAnalistaLlamada }, client
+      );
 
-      if (analistaResult.recordset.length === 0) {
+      if (analistaResult.rows.length === 0) {
 
-        await transaction.rollback();
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Analista no válido' });
 
       }
@@ -421,42 +403,31 @@ const tomarCaso = async (req, res) => {
     }
 
     // Insertar caso
-    const insertResult = await new sql.Request(transaction)
-      .input('idAnalista', sql.Int, idAnalista)
-      .input('numerochat', sql.VarChar(50), numerochat)
-      .input('nombreEDS', sql.NVarChar(200), nombreEDS)
-      .input('tipo', sql.VarChar(10), tipo)
-      .input('ticket', sql.NVarChar(50), ticket.ticket)
-      .query(`
-        INSERT INTO casos3cx (idAnalista, numerochat, fecha, nombreEDS, tipo, ticketReferencia2WD)
-        OUTPUT INSERTED.id
-        VALUES (@idAnalista, @numerochat, GETDATE(), @nombreEDS, @tipo, @ticket)
-      `);
+    const insertResult = await query(`
+        INSERT INTO casos3cx ("idAnalista", numerochat, fecha, "nombreEDS", tipo, "ticketReferencia2WD")
+        VALUES (@idAnalista, @numerochat, LOCALTIMESTAMP, @nombreEDS, @tipo, @ticket)
+        RETURNING id
+      `, { idAnalista, numerochat, nombreEDS, tipo, ticket: ticket.ticket }, client);
 
-    const idCaso = insertResult.recordset[0].id;
+    const idCaso = insertResult.rows[0].id;
 
     // Tramo inicial: queda activo (se está dando respuesta)
-    await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .input('idAnalista', sql.Int, idAnalista)
-      .query(`
-        INSERT INTO casos3cx_estados (idCaso, estado, inicio, idAnalista)
-        VALUES (@idCaso, 'ACTIVO', GETDATE(), @idAnalista)
-      `);
+    await query(`
+        INSERT INTO casos3cx_estados ("idCaso", estado, inicio, "idAnalista")
+        VALUES (@idCaso, 'ACTIVO', LOCALTIMESTAMP, @idAnalista)
+      `, { idCaso, idAnalista }, client);
 
-    await transaction.commit();
+    await client.query('COMMIT');
 
     // Caso recién insertado
-    const nuevoCaso = await connection.request()
-      .input('idCaso', sql.Int, idCaso)
-      .query(`
-        SELECT a.nombre, a.activo, c.idAnalista, c.numerochat, c.fecha, c.id, c.tipo, c.nombreEDS, c.ticketReferencia2WD
+    const nuevoCaso = await query(`
+        SELECT a.nombre, a.activo::int AS activo, c."idAnalista", c.numerochat, c.fecha, c.id, c.tipo, c."nombreEDS", c."ticketReferencia2WD"
         FROM casos3cx c
-        JOIN analistas a ON c.idAnalista = a.id
+        JOIN analistas a ON c."idAnalista" = a.id
         WHERE c.id = @idCaso
-      `);
+      `, { idCaso });
 
-    const caso = nuevoCaso.recordset[0];
+    const caso = nuevoCaso.rows[0];
 
     // Socket
     const io = req.app.get("io");
@@ -466,7 +437,7 @@ const tomarCaso = async (req, res) => {
 
   } catch (error) {
 
-    await transaction.rollback().catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
 
     if (esDuplicado(error)) {
       return res.status(409).json({ error: mensajeTicketDuplicado(ticket.ticket) });
@@ -474,6 +445,10 @@ const tomarCaso = async (req, res) => {
 
     console.error(error);
     res.status(500).json({ error: 'Error al tomar el caso' });
+
+  } finally {
+
+    if (client) client.release();
 
   }
 };
@@ -495,91 +470,79 @@ const pasarCaso = async (req, res) => {
     return res.status(400).json({ error: 'No puedes pasarte el caso a ti mismo' });
   }
 
-  const connection = await pool;
-  const transaction = new sql.Transaction(connection);
+  let client;
 
   try {
 
-    await transaction.begin();
+    client = await pool.connect();
+    await client.query('BEGIN');
 
-    const caso = await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .query(`SELECT idAnalista, numerochat, tipo FROM casos3cx WITH (UPDLOCK, ROWLOCK) WHERE id = @idCaso`);
+    const caso = await query(
+      `SELECT "idAnalista", numerochat, tipo FROM casos3cx WHERE id = @idCaso FOR UPDATE`,
+      { idCaso }, client
+    );
 
-    if (caso.recordset.length === 0) {
-      await transaction.rollback();
+    if (caso.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Caso no encontrado' });
     }
 
-    if (caso.recordset[0].idAnalista !== de) {
-      await transaction.rollback();
+    if (caso.rows[0].idAnalista !== de) {
+      await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Solo quien tiene el caso puede pasarlo' });
     }
 
-    const ultimo = await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .query(`
-        SELECT TOP 1 estado
-        FROM casos3cx_estados WITH (UPDLOCK, ROWLOCK)
-        WHERE idCaso = @idCaso
+    const ultimo = await query(`
+        SELECT estado
+        FROM casos3cx_estados
+        WHERE "idCaso" = @idCaso
         ORDER BY id DESC
-      `);
+        LIMIT 1
+        FOR UPDATE
+      `, { idCaso }, client);
 
-    const estadoActual = ultimo.recordset[0]?.estado;
+    const estadoActual = ultimo.rows[0]?.estado;
 
     if (estadoActual === 'FINALIZADO') {
-      await transaction.rollback();
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: 'El caso ya está finalizado y no se puede pasar' });
     }
 
-    const personas = await new sql.Request(transaction)
-      .input('de', sql.Int, de)
-      .input('a', sql.Int, a)
-      .query(`
+    const personas = await query(`
         SELECT id, nombre FROM analistas
-        WHERE id IN (@de, @a) AND idRol = 1 AND existe = 1
-      `);
+        WHERE id IN (@de, @a) AND "idRol" = 1 AND existe = '1'
+      `, { de, a }, client);
 
-    const receptor = personas.recordset.find(p => p.id === a);
-    const emisor   = personas.recordset.find(p => p.id === de);
+    const receptor = personas.rows.find(p => p.id === a);
+    const emisor   = personas.rows.find(p => p.id === de);
 
     if (!receptor || !emisor) {
-      await transaction.rollback();
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Analista no válido' });
     }
 
-    await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .input('a', sql.Int, a)
-      .query(`UPDATE casos3cx SET idAnalista = @a WHERE id = @idCaso`);
+    await query(`UPDATE casos3cx SET "idAnalista" = @a WHERE id = @idCaso`, { idCaso, a }, client);
 
-    await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .input('de', sql.Int, de)
-      .input('a', sql.Int, a)
-      .query(`
-        INSERT INTO casos3cx_traspasos (idCaso, deAnalista, aAnalista, fecha)
-        VALUES (@idCaso, @de, @a, GETDATE())
-      `);
+    await query(`
+        INSERT INTO casos3cx_traspasos ("idCaso", "deAnalista", "aAnalista", fecha)
+        VALUES (@idCaso, @de, @a, LOCALTIMESTAMP)
+      `, { idCaso, de, a }, client);
 
     // Corta el tramo del emisor y abre uno del receptor en el mismo estado (ACTIVO o INACTIVO)
     if (estadoActual) {
 
-      await new sql.Request(transaction)
-        .input('idCaso', sql.Int, idCaso)
-        .query(`UPDATE casos3cx_estados SET fin = GETDATE() WHERE idCaso = @idCaso AND fin IS NULL`);
+      await query(
+        `UPDATE casos3cx_estados SET fin = LOCALTIMESTAMP WHERE "idCaso" = @idCaso AND fin IS NULL`,
+        { idCaso }, client
+      );
 
-      await new sql.Request(transaction)
-        .input('idCaso', sql.Int, idCaso)
-        .input('estado', sql.VarChar(12), estadoActual)
-        .input('a', sql.Int, a)
-        .query(`
-          INSERT INTO casos3cx_estados (idCaso, estado, inicio, idAnalista)
-          VALUES (@idCaso, @estado, GETDATE(), @a)
-        `);
+      await query(`
+          INSERT INTO casos3cx_estados ("idCaso", estado, inicio, "idAnalista")
+          VALUES (@idCaso, @estado, LOCALTIMESTAMP, @a)
+        `, { idCaso, estado: estadoActual, a }, client);
     }
 
-    await transaction.commit();
+    await client.query('COMMIT');
 
     const io = req.app.get('io');
     io.emit('casoPasado', {
@@ -587,18 +550,22 @@ const pasarCaso = async (req, res) => {
       de, a,
       deNombre: emisor.nombre,
       aNombre: receptor.nombre,
-      numerochat: caso.recordset[0].numerochat,
-      tipo: caso.recordset[0].tipo
+      numerochat: caso.rows[0].numerochat,
+      tipo: caso.rows[0].tipo
     });
 
     res.json({ ok: true, aNombre: receptor.nombre });
 
   } catch (error) {
 
-    await transaction.rollback().catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
 
     console.error('Error pasando el caso:', error);
     res.status(500).json({ error: 'Error al pasar el caso' });
+
+  } finally {
+
+    if (client) client.release();
 
   }
 };
@@ -623,74 +590,73 @@ const cambiarEstadoCaso = async (req, res) => {
     return res.status(400).json({ error: 'Datos inválidos' });
   }
 
-  const connection = await pool;
-  const transaction = new sql.Transaction(connection);
+  let client;
 
   try {
 
-    await transaction.begin();
+    client = await pool.connect();
+    await client.query('BEGIN');
 
-    const caso = await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .query(`SELECT idAnalista FROM casos3cx WHERE id = @idCaso`);
+    const caso = await query(`SELECT "idAnalista" FROM casos3cx WHERE id = @idCaso`, { idCaso }, client);
 
-    if (caso.recordset.length === 0) {
-      await transaction.rollback();
+    if (caso.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Caso no encontrado' });
     }
 
-    if (caso.recordset[0].idAnalista !== idAnalista) {
-      await transaction.rollback();
+    if (caso.rows[0].idAnalista !== idAnalista) {
+      await client.query('ROLLBACK');
       return res.status(403).json({ error: 'El caso pertenece a otro analista' });
     }
 
-    const ultimo = await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .query(`
-        SELECT TOP 1 estado
-        FROM casos3cx_estados WITH (UPDLOCK, ROWLOCK)
-        WHERE idCaso = @idCaso
+    const ultimo = await query(`
+        SELECT estado
+        FROM casos3cx_estados
+        WHERE "idCaso" = @idCaso
         ORDER BY id DESC
-      `);
+        LIMIT 1
+        FOR UPDATE
+      `, { idCaso }, client);
 
-    const estadoActual = ultimo.recordset[0]?.estado;
+    const estadoActual = ultimo.rows[0]?.estado;
 
     if (estadoActual === 'FINALIZADO') {
-      await transaction.rollback();
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: 'El caso ya está finalizado' });
     }
 
     if (estadoActual === nuevoEstado) {
-      await transaction.rollback();
+      await client.query('ROLLBACK');
       return res.json({ ok: true, sinCambios: true });
     }
 
-    await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .query(`UPDATE casos3cx_estados SET fin = GETDATE() WHERE idCaso = @idCaso AND fin IS NULL`);
+    await query(
+      `UPDATE casos3cx_estados SET fin = LOCALTIMESTAMP WHERE "idCaso" = @idCaso AND fin IS NULL`,
+      { idCaso }, client
+    );
 
     // El tramo FINALIZADO se guarda ya cerrado para que no acumule tiempo
-    await new sql.Request(transaction)
-      .input('idCaso', sql.Int, idCaso)
-      .input('estado', sql.VarChar(12), nuevoEstado)
-      .input('idAnalista', sql.Int, idAnalista)
-      .query(`
-        INSERT INTO casos3cx_estados (idCaso, estado, inicio, fin, idAnalista)
-        VALUES (@idCaso, @estado, GETDATE(),
-                CASE WHEN @estado = 'FINALIZADO' THEN GETDATE() END,
+    await query(`
+        INSERT INTO casos3cx_estados ("idCaso", estado, inicio, fin, "idAnalista")
+        VALUES (@idCaso, @estado, LOCALTIMESTAMP,
+                CASE WHEN @cerrado::boolean THEN LOCALTIMESTAMP END,
                 @idAnalista)
-      `);
+      `, { idCaso, estado: nuevoEstado, cerrado: nuevoEstado === 'FINALIZADO', idAnalista }, client);
 
-    await transaction.commit();
+    await client.query('COMMIT');
 
     res.json({ ok: true });
 
   } catch (error) {
 
-    await transaction.rollback().catch(() => {});
+    if (client) await client.query('ROLLBACK').catch(() => {});
 
     console.error('Error cambiando estado del caso:', error);
     res.status(500).json({ error: 'Error al cambiar el estado del caso' });
+
+  } finally {
+
+    if (client) client.release();
 
   }
 };

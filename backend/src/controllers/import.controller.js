@@ -1,4 +1,4 @@
-const { sql, pool } = require('../config/db');
+const { query } = require('../config/db');
 const xlsx = require('xlsx');
 
 const norm = s =>
@@ -38,25 +38,25 @@ function toDate(val) {
 const fmtDate     = d => d ? d.toISOString().slice(0, 10) : null;
 const fmtDateTime = d => d ? d.toISOString().replace('T', ' ').slice(0, 19) : null;
 
-async function cargarCatalogos(db) {
+async function cargarCatalogos() {
   const [a, c, t, e, p, g, s] = await Promise.all([
-    db.request().query(`SELECT id, nombre, idGrupoColaborador FROM analistas WHERE idRol = 1`),
-    db.request().query(`SELECT id, nombre FROM categorias`),
-    db.request().query(`SELECT id, nombre FROM tiposCaso`),
-    db.request().query(`SELECT id, nombre FROM estatus`),
-    db.request().query(`SELECT id, nombre FROM prioridad`),
-    db.request().query(`SELECT id, nombre FROM gruposColaborador`),
-    db.request().query(`SELECT id, nombre, codigocliente2wdesk FROM estaciones WHERE existe = 1`),
+    query(`SELECT id, nombre, "idGrupoColaborador" FROM analistas WHERE "idRol" = 1`),
+    query(`SELECT id, nombre FROM categorias`),
+    query(`SELECT id, nombre FROM "tiposCaso"`),
+    query(`SELECT id, nombre FROM estatus`),
+    query(`SELECT id, nombre FROM prioridad`),
+    query(`SELECT id, nombre FROM "gruposColaborador"`),
+    query(`SELECT id, nombre, codigocliente2wdesk FROM estaciones WHERE existe = '1'`),
   ]);
   return {
-    analistas:     a.recordset,
-    sinResponsable: a.recordset.find(x => norm(x.nombre) === 'sin responsable') || null,
-    categorias:    c.recordset,
-    tiposCaso:     t.recordset,
-    estatus:       e.recordset,
-    prioridad:     p.recordset,
-    grupos:        g.recordset,
-    estaciones:    s.recordset,
+    analistas:     a.rows,
+    sinResponsable: a.rows.find(x => norm(x.nombre) === 'sin responsable') || null,
+    categorias:    c.rows,
+    tiposCaso:     t.rows,
+    estatus:       e.rows,
+    prioridad:     p.rows,
+    grupos:        g.rows,
+    estaciones:    s.rows,
   };
 }
 
@@ -102,17 +102,16 @@ const previewExcel = async (req, res) => {
 
     if (!rows.length) return res.status(400).json({ error: 'El archivo está vacío o sin datos' });
 
-    const db  = await pool;
-    const cat = await cargarCatalogos(db);
+    const cat = await cargarCatalogos();
 
-    const existR = await db.request().query(`
-      SELECT codigo2wd, casoAtendido, EDS, idAnalista, escalado, idTipoCaso, idCategoria,
-             idEstatus, idPrioridad, idGrupoColaborador, origenFalla, observaciones,
-             CONVERT(VARCHAR(10), fechaCaso, 23) AS fechaCaso
+    const existR = await query(`
+      SELECT codigo2wd, "casoAtendido", "EDS", "idAnalista", escalado, "idTipoCaso", "idCategoria",
+             "idEstatus", "idPrioridad", "idGrupoColaborador", "origenFalla", observaciones,
+             to_char("fechaCaso", 'YYYY-MM-DD') AS "fechaCaso"
       FROM tickets WHERE codigo2wd IS NOT NULL
     `);
     const existingMap = new Map(
-      existR.recordset.map(r => [String(r.codigo2wd).trim(), r])
+      existR.rows.map(r => [String(r.codigo2wd).trim(), r])
     );
 
     const filas = rows.map((row, idx) => {
@@ -271,7 +270,6 @@ const confirmarImport = async (req, res) => {
     if (!Array.isArray(filas) || !filas.length)
       return res.status(400).json({ error: 'Sin filas para importar' });
 
-    const db = await pool;
     let insertados = 0, actualizados = 0, analistasCreados = 0;
     const errores = [];
 
@@ -288,17 +286,17 @@ const confirmarImport = async (req, res) => {
 
     for (const nombre of nombresNuevos) {
       try {
-        const check = await db.request()
-          .input('n', sql.NVarChar, nombre)
-          .query(`SELECT id FROM analistas WHERE nombre = @n`);
-        if (check.recordset.length) {
-          analNuevosMap.set(nombre, check.recordset[0].id);
+        // Igual que en SQL Server: sin distinguir mayúsculas ni espacios al final
+        const check = await query(
+          `SELECT id FROM analistas WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(@n))`,
+          { n: nombre }
+        );
+        if (check.rows.length) {
+          analNuevosMap.set(nombre, check.rows[0].id);
         } else {
-          const ins = await db.request()
-            .input('n', sql.NVarChar, nombre)
-            .query(`INSERT INTO analistas (nombre, orden, activo, existe, idRol)
-                    OUTPUT INSERTED.id VALUES (@n, 0, 0, 0, 1)`);
-          analNuevosMap.set(nombre, ins.recordset[0].id);
+          const ins = await query(`INSERT INTO analistas (nombre, orden, activo, existe, "idRol")
+                    VALUES (@n, 0, '0', '0', 1) RETURNING id`, { n: nombre });
+          analNuevosMap.set(nombre, ins.rows[0].id);
           analistasCreados++;
         }
       } catch (e) {
@@ -318,37 +316,35 @@ const confirmarImport = async (req, res) => {
           const idAna     = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
           const esCerrado = [1, 2].includes(f.idEstatus);
           const idEsc     = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? (esCerrado ? idAna : null);
-          await db.request()
-            .input('casoAtendido',        sql.NVarChar, f.casoAtendido       || null)
-            .input('EDS',                 sql.NVarChar, f.eds                || null)
-            .input('idTipoCaso',          sql.Int,      f.idTipoCaso         || null)
-            .input('idCategoria',         sql.Int,      f.idCategoria        || null)
-            .input('origenFalla',         sql.NVarChar, f.origenFalla        || null)
-            .input('solucion',            sql.NVarChar, null)
-            .input('idAnalista',          sql.Int,      idAna)
-            .input('escalado',            sql.Int,      idEsc)
-            .input('tiempoAtencionMin',   sql.Int,      null)
-            .input('versiones',           sql.NVarChar, null)
-            .input('observaciones',       sql.NVarChar, f.observaciones      || null)
-            .input('fechaCaso',           sql.Date,     f.fechaCaso  ? new Date(f.fechaCaso)  : null)
-            .input('fechaHora',           sql.DateTime, f.fechaHora  ? new Date(f.fechaHora)  : new Date())
-            .input('codigo2wd',           sql.NVarChar, f.codigo2wd          || null)
-            .input('idEstatus',           sql.Int,      f.idEstatus          || null)
-            .input('idPrioridad',         sql.Int,      f.idPrioridad        || null)
-            .input('idGrupoColaborador',  sql.Int,      f.idGrupoColaborador || null)
-            .query(`
+          // fechaHora vacía = momento de la importación
+          await query(`
               INSERT INTO tickets (
-                casoAtendido, EDS, idTipoCaso, idCategoria, origenFalla, solucion,
-                idAnalista, escalado, tiempoAtencionMin, versiones, observaciones,
-                fechaCaso, fechaHora,
-                codigo2wd, idEstatus, idPrioridad, idGrupoColaborador
+                "casoAtendido", "EDS", "idTipoCaso", "idCategoria", "origenFalla", solucion,
+                "idAnalista", escalado, "tiempoAtencionMin", versiones, observaciones,
+                "fechaCaso", "fechaHora",
+                codigo2wd, "idEstatus", "idPrioridad", "idGrupoColaborador"
               ) VALUES (
-                @casoAtendido, @EDS, @idTipoCaso, @idCategoria, @origenFalla, @solucion,
-                @idAnalista, @escalado, @tiempoAtencionMin, @versiones, @observaciones,
-                @fechaCaso, @fechaHora,
+                @casoAtendido, @EDS, @idTipoCaso, @idCategoria, @origenFalla, NULL,
+                @idAnalista, @escalado, NULL, NULL, @observaciones,
+                @fechaCaso, COALESCE(@fechaHora::timestamp, LOCALTIMESTAMP),
                 @codigo2wd, @idEstatus, @idPrioridad, @idGrupoColaborador
               )
-            `);
+            `, {
+              casoAtendido:       f.casoAtendido       || null,
+              EDS:                f.eds                || null,
+              idTipoCaso:         f.idTipoCaso         || null,
+              idCategoria:        f.idCategoria        || null,
+              origenFalla:        f.origenFalla        || null,
+              idAnalista:         idAna,
+              escalado:           idEsc,
+              observaciones:      f.observaciones      || null,
+              fechaCaso:          f.fechaCaso          || null,
+              fechaHora:          f.fechaHora          || null,
+              codigo2wd:          f.codigo2wd          || null,
+              idEstatus:          f.idEstatus          || null,
+              idPrioridad:        f.idPrioridad        || null,
+              idGrupoColaborador: f.idGrupoColaborador || null,
+            });
           insertados++;
 
         } else if (f.accion === 'actualizar' && f.codigo2wd) {
@@ -356,24 +352,24 @@ const confirmarImport = async (req, res) => {
           const esCerrado = [1, 2].includes(f.idEstatus);
           const idEsc     = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? (esCerrado ? idAna : null);
           const sets = [];
-          const r = db.request().input('codigo', sql.NVarChar, f.codigo2wd);
+          const prm = { codigo: f.codigo2wd };
 
-          if (f.casoAtendido)       { sets.push('casoAtendido = @casoAtendido');             r.input('casoAtendido',       sql.NVarChar, f.casoAtendido); }
-          if (f.eds)                { sets.push('EDS = @EDS');                               r.input('EDS',                sql.NVarChar, f.eds); }
-          if (f.idTipoCaso)         { sets.push('idTipoCaso = @idTipoCaso');                 r.input('idTipoCaso',         sql.Int,      f.idTipoCaso); }
-          if (f.idCategoria)        { sets.push('idCategoria = @idCategoria');               r.input('idCategoria',        sql.Int,      f.idCategoria); }
-          if (f.origenFalla)        { sets.push('origenFalla = @origenFalla');               r.input('origenFalla',        sql.NVarChar, f.origenFalla); }
-          if (idAna)                { sets.push('idAnalista = @idAnalista');                 r.input('idAnalista',         sql.Int,      idAna); }
-          if (idEsc)                { sets.push('escalado = @escalado');                     r.input('escalado',           sql.Int,      idEsc); }
-          if (f.observaciones)      { sets.push('observaciones = @observaciones');           r.input('observaciones',      sql.NVarChar, f.observaciones); }
-          if (f.fechaCaso)          { sets.push('fechaCaso = @fechaCaso');                   r.input('fechaCaso',          sql.Date,     new Date(f.fechaCaso)); }
-          if (f.fechaHora)          { sets.push('fechaHora = @fechaHora');                   r.input('fechaHora',          sql.DateTime, new Date(f.fechaHora)); }
-          if (f.idEstatus)          { sets.push('idEstatus = @idEstatus');                   r.input('idEstatus',          sql.Int,      f.idEstatus); }
-          if (f.idPrioridad)        { sets.push('idPrioridad = @idPrioridad');               r.input('idPrioridad',        sql.Int,      f.idPrioridad); }
-          if (f.idGrupoColaborador) { sets.push('idGrupoColaborador = @idGrupoColaborador'); r.input('idGrupoColaborador', sql.Int,      f.idGrupoColaborador); }
+          if (f.casoAtendido)       { sets.push('"casoAtendido" = @casoAtendido');             prm.casoAtendido       = f.casoAtendido; }
+          if (f.eds)                { sets.push('"EDS" = @EDS');                               prm.EDS                = f.eds; }
+          if (f.idTipoCaso)         { sets.push('"idTipoCaso" = @idTipoCaso');                 prm.idTipoCaso         = f.idTipoCaso; }
+          if (f.idCategoria)        { sets.push('"idCategoria" = @idCategoria');               prm.idCategoria        = f.idCategoria; }
+          if (f.origenFalla)        { sets.push('"origenFalla" = @origenFalla');               prm.origenFalla        = f.origenFalla; }
+          if (idAna)                { sets.push('"idAnalista" = @idAnalista');                 prm.idAnalista         = idAna; }
+          if (idEsc)                { sets.push('escalado = @escalado');                       prm.escalado           = idEsc; }
+          if (f.observaciones)      { sets.push('observaciones = @observaciones');             prm.observaciones      = f.observaciones; }
+          if (f.fechaCaso)          { sets.push('"fechaCaso" = @fechaCaso');                   prm.fechaCaso          = f.fechaCaso; }
+          if (f.fechaHora)          { sets.push('"fechaHora" = @fechaHora');                   prm.fechaHora          = f.fechaHora; }
+          if (f.idEstatus)          { sets.push('"idEstatus" = @idEstatus');                   prm.idEstatus          = f.idEstatus; }
+          if (f.idPrioridad)        { sets.push('"idPrioridad" = @idPrioridad');               prm.idPrioridad        = f.idPrioridad; }
+          if (f.idGrupoColaborador) { sets.push('"idGrupoColaborador" = @idGrupoColaborador'); prm.idGrupoColaborador = f.idGrupoColaborador; }
 
           if (sets.length > 0) {
-            await r.query(`UPDATE tickets SET ${sets.join(', ')} WHERE codigo2wd = @codigo`);
+            await query(`UPDATE tickets SET ${sets.join(', ')} WHERE codigo2wd = @codigo`, prm);
             actualizados++;
           }
         }

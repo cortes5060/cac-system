@@ -1,4 +1,4 @@
-const { sql, pool } = require('../config/db');
+const { query } = require('../config/db');
 const bcrypt = require('bcryptjs');
 
 /* ---------- AUTH ---------- */
@@ -6,12 +6,12 @@ const bcrypt = require('bcryptjs');
 const login = async (req, res) => {
   try {
     const { id, password } = req.body;
-    const connection = await pool;
-    const result = await connection.request()
-      .input('id', sql.Int, id)
-      .query(`SELECT id, nombre, idRol, passwordHash FROM analistas WHERE id = @id AND existe = 1`);
+    const result = await query(
+      `SELECT id, nombre, "idRol", "passwordHash" FROM analistas WHERE id = @id AND existe = '1'`,
+      { id }
+    );
 
-    const ana = result.recordset[0];
+    const ana = result.rows[0];
 
     if (!ana || ana.idRol !== 2) {
       return res.status(401).json({ error: 'Acceso no autorizado' });
@@ -36,14 +36,13 @@ const login = async (req, res) => {
 
 const getAnalistas = async (req, res) => {
   try {
-    const connection = await pool;
-    const result = await connection.request().query(`
-      SELECT id, nombre, orden, activo, existe
+    const result = await query(`
+      SELECT id, nombre, orden, activo::int AS activo, existe::int AS existe
       FROM analistas
-      WHERE idRol = 1 AND existe = 1
+      WHERE "idRol" = 1 AND existe = '1'
       ORDER BY nombre
     `);
-    res.json(result.recordset);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -53,30 +52,23 @@ const cambiarEstadoAnalista = async (req, res) => {
   try {
     const { id } = req.params;
     const { activo } = req.body;
-    const connection = await pool;
 
     if (activo == 1) {
       // Desplaza a todos los activos una posición y pone al nuevo en #1
-      await connection.request()
-        .query(`UPDATE analistas SET orden = orden + 1 WHERE activo = 1`);
+      await query(`UPDATE analistas SET orden = orden + 1 WHERE activo = '1'`);
 
-      await connection.request()
-        .input('id', sql.Int, id)
-        .query(`UPDATE analistas SET activo = 1, orden = 1 WHERE id = @id`);
+      await query(`UPDATE analistas SET activo = '1', orden = 1 WHERE id = @id`, { id });
     } else {
-      const anaR = await connection.request()
-        .input('id', sql.Int, id)
-        .query(`SELECT orden FROM analistas WHERE id = @id`);
-      const ordenActual = anaR.recordset[0]?.orden || 0;
+      const anaR = await query(`SELECT orden FROM analistas WHERE id = @id`, { id });
+      const ordenActual = anaR.rows[0]?.orden || 0;
 
-      await connection.request()
-        .input('id', sql.Int, id)
-        .query(`UPDATE analistas SET activo = 0, orden = 0 WHERE id = @id`);
+      await query(`UPDATE analistas SET activo = '0', orden = 0 WHERE id = @id`, { id });
 
       if (ordenActual > 0) {
-        await connection.request()
-          .input('orden', sql.Int, ordenActual)
-          .query(`UPDATE analistas SET orden = orden - 1 WHERE activo = 1 AND orden > @orden`);
+        await query(
+          `UPDATE analistas SET orden = orden - 1 WHERE activo = '1' AND orden > @orden`,
+          { orden: ordenActual }
+        );
       }
     }
 
@@ -90,22 +82,18 @@ const cambiarEstadoAnalista = async (req, res) => {
 const eliminarAnalista = async (req, res) => {
   try {
     const { id } = req.params;
-    const connection = await pool;
 
-    const anaR = await connection.request()
-      .input('id', sql.Int, id)
-      .query(`SELECT orden, activo FROM analistas WHERE id = @id`);
-    const ana = anaR.recordset[0];
+    const anaR = await query(`SELECT orden, activo::int AS activo FROM analistas WHERE id = @id`, { id });
+    const ana = anaR.rows[0];
 
     if (ana?.activo && ana.orden > 0) {
-      await connection.request()
-        .input('orden', sql.Int, ana.orden)
-        .query(`UPDATE analistas SET orden = orden - 1 WHERE activo = 1 AND orden > @orden`);
+      await query(
+        `UPDATE analistas SET orden = orden - 1 WHERE activo = '1' AND orden > @orden`,
+        { orden: ana.orden }
+      );
     }
 
-    await connection.request()
-      .input('id', sql.Int, id)
-      .query(`UPDATE analistas SET existe = 0, activo = 0, orden = 0 WHERE id = @id`);
+    await query(`UPDATE analistas SET existe = '0', activo = '0', orden = 0 WHERE id = @id`, { id });
 
     req.app.get('io').emit('analistaActualizado', { id: parseInt(id), activo: 0 });
     res.json({ ok: true });
@@ -126,18 +114,14 @@ const asignarPasswordAnalista = async (req, res) => {
       return res.status(400).json({ error: 'La contraseña debe tener al menos 4 caracteres' });
     }
 
-    const connection = await pool;
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const result = await connection.request()
-      .input('id', sql.Int, id)
-      .input('passwordHash', sql.NVarChar, passwordHash)
-      .query(`
-        UPDATE analistas SET passwordHash = @passwordHash
-        WHERE id = @id AND idRol = 1 AND existe = 1
-      `);
+    const result = await query(`
+        UPDATE analistas SET "passwordHash" = @passwordHash
+        WHERE id = @id AND "idRol" = 1 AND existe = '1'
+      `, { id, passwordHash });
 
-    if (result.rowsAffected[0] === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Analista no encontrado' });
     }
 
@@ -151,13 +135,9 @@ const asignarPasswordAnalista = async (req, res) => {
 const actualizarOrden = async (req, res) => {
   try {
     const { ordenes } = req.body;
-    const connection = await pool;
 
     for (const { id, orden } of ordenes) {
-      await connection.request()
-        .input('id', sql.Int, id)
-        .input('orden', sql.Int, orden)
-        .query(`UPDATE analistas SET orden = @orden WHERE id = @id`);
+      await query(`UPDATE analistas SET orden = @orden WHERE id = @id`, { id, orden });
     }
 
     req.app.get('io').emit('analistaActualizado', { reordenado: true });
@@ -171,9 +151,8 @@ const actualizarOrden = async (req, res) => {
 
 const getCategorias = async (req, res) => {
   try {
-    const result = await (await pool).request()
-      .query(`SELECT id, nombre, activo FROM categorias ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre, activo::int AS activo FROM categorias ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -182,9 +161,7 @@ const getCategorias = async (req, res) => {
 const crearCategoria = async (req, res) => {
   try {
     const { nombre } = req.body;
-    await (await pool).request()
-      .input('nombre', sql.NVarChar, nombre)
-      .query(`INSERT INTO categorias (nombre, activo) VALUES (@nombre, 1)`);
+    await query(`INSERT INTO categorias (nombre, activo) VALUES (@nombre, '1')`, { nombre });
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -195,10 +172,7 @@ const toggleCategoria = async (req, res) => {
   try {
     const { id } = req.params;
     const { activo } = req.body;
-    await (await pool).request()
-      .input('id', sql.Int, id)
-      .input('activo', sql.Int, activo)
-      .query(`UPDATE categorias SET activo = @activo WHERE id = @id`);
+    await query(`UPDATE categorias SET activo = @activo WHERE id = @id`, { id, activo: String(Number(activo) ? 1 : 0) });
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -209,9 +183,8 @@ const toggleCategoria = async (req, res) => {
 
 const getEDS = async (req, res) => {
   try {
-    const result = await (await pool).request()
-      .query(`SELECT id, nombre, NIT, direccion, existe FROM estaciones ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre, "NIT", direccion, existe::int AS existe FROM estaciones ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -220,22 +193,18 @@ const getEDS = async (req, res) => {
 const crearEDS = async (req, res) => {
   try {
     const { nombre, NIT, direccion } = req.body;
-    const db = await pool;
 
     if (NIT) {
-      const dup = await db.request()
-        .input('NIT', sql.NVarChar, NIT)
-        .query(`SELECT id FROM estaciones WHERE NIT = @NIT`);
-      if (dup.recordset.length > 0) {
+      const dup = await query(`SELECT id FROM estaciones WHERE "NIT" = @NIT`, { NIT });
+      if (dup.rows.length > 0) {
         return res.status(409).json({ error: `Ya existe una EDS con el NIT ${NIT}` });
       }
     }
 
-    await db.request()
-      .input('nombre',    sql.NVarChar, nombre)
-      .input('NIT',       sql.NVarChar, NIT       || null)
-      .input('direccion', sql.NVarChar, direccion || null)
-      .query(`INSERT INTO estaciones (nombre, NIT, direccion, existe) VALUES (@nombre, @NIT, @direccion, 1)`);
+    await query(
+      `INSERT INTO estaciones (nombre, "NIT", direccion, existe) VALUES (@nombre, @NIT, @direccion, '1')`,
+      { nombre, NIT: NIT || null, direccion: direccion || null }
+    );
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -246,10 +215,7 @@ const toggleEDS = async (req, res) => {
   try {
     const { id } = req.params;
     const { existe } = req.body;
-    await (await pool).request()
-      .input('id', sql.Int, id)
-      .input('existe', sql.Int, existe)
-      .query(`UPDATE estaciones SET existe = @existe WHERE id = @id`);
+    await query(`UPDATE estaciones SET existe = @existe WHERE id = @id`, { id, existe: String(Number(existe) ? 1 : 0) });
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -260,17 +226,17 @@ const toggleEDS = async (req, res) => {
 
 const getHorarios = async (_req, res) => {
   try {
-    const result = await (await pool).request().query(`
+    const result = await query(`
       SELECT
         id,
-        CONVERT(VARCHAR(8), HoraEntrada,        108) AS HoraEntrada,
-        CONVERT(VARCHAR(8), HoraSalida,          108) AS HoraSalida,
-        CONVERT(VARCHAR(8), HoraAlmuerzoInicio,  108) AS HoraAlmuerzoInicio,
-        CONVERT(VARCHAR(8), HoraAlmuerzoFin,     108) AS HoraAlmuerzoFin
-      FROM Horarios
-      ORDER BY HoraEntrada
+        LEFT("HoraEntrada"::time::text,        8) AS "HoraEntrada",
+        LEFT("HoraSalida"::time::text,         8) AS "HoraSalida",
+        LEFT("HoraAlmuerzoInicio"::time::text, 8) AS "HoraAlmuerzoInicio",
+        LEFT("HoraAlmuerzoFin"::time::text,    8) AS "HoraAlmuerzoFin"
+      FROM "Horarios"
+      ORDER BY "Horarios"."HoraEntrada"
     `);
-    res.json(result.recordset);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -278,19 +244,19 @@ const getHorarios = async (_req, res) => {
 
 const getAnalistasHorarios = async (_req, res) => {
   try {
-    const result = await (await pool).request().query(`
+    const result = await query(`
       SELECT
         a.id, a.nombre, a.idhorario,
-        CONVERT(VARCHAR(8), h.HoraEntrada,        108) AS HoraEntrada,
-        CONVERT(VARCHAR(8), h.HoraSalida,          108) AS HoraSalida,
-        CONVERT(VARCHAR(8), h.HoraAlmuerzoInicio,  108) AS HoraAlmuerzoInicio,
-        CONVERT(VARCHAR(8), h.HoraAlmuerzoFin,     108) AS HoraAlmuerzoFin
+        LEFT(h."HoraEntrada"::time::text,        8) AS "HoraEntrada",
+        LEFT(h."HoraSalida"::time::text,         8) AS "HoraSalida",
+        LEFT(h."HoraAlmuerzoInicio"::time::text, 8) AS "HoraAlmuerzoInicio",
+        LEFT(h."HoraAlmuerzoFin"::time::text,    8) AS "HoraAlmuerzoFin"
       FROM analistas a
-      LEFT JOIN Horarios h ON a.idhorario = h.id
-      WHERE a.idRol = 1 AND a.existe = 1
+      LEFT JOIN "Horarios" h ON a.idhorario = h.id
+      WHERE a."idRol" = 1 AND a.existe = '1'
       ORDER BY a.nombre
     `);
-    res.json(result.recordset);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -300,10 +266,7 @@ const asignarHorario = async (req, res) => {
   try {
     const { id } = req.params;
     const { idhorario } = req.body;
-    await (await pool).request()
-      .input('id',        sql.Int, id)
-      .input('idhorario', sql.Int, idhorario)
-      .query(`UPDATE analistas SET idhorario = @idhorario WHERE id = @id`);
+    await query(`UPDATE analistas SET idhorario = @idhorario WHERE id = @id`, { id, idhorario });
     res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -313,37 +276,37 @@ const asignarHorario = async (req, res) => {
 const buscarCasos = async (req, res) => {
   try {
     const { numero, nombreeds, fechaini, fechafin } = req.query;
-    const connection = await pool;
-    const request = connection.request();
+    const params = {};
 
     let where = 'WHERE 1=1';
 
     if (numero) {
-      request.input('numero', sql.NVarChar, `%${numero}%`);
-      where += ' AND CAST(c.numerochat AS NVARCHAR) LIKE @numero';
+      params.numero = `%${numero}%`;
+      where += ' AND c.numerochat::text ILIKE @numero';
     }
     if (nombreeds) {
-      request.input('nombreeds', sql.NVarChar, `%${nombreeds}%`);
-      where += ' AND c.nombreEDS LIKE @nombreeds';
+      params.nombreeds = `%${nombreeds}%`;
+      where += ' AND c."nombreEDS" ILIKE @nombreeds';
     }
     if (fechaini) {
-      request.input('fechaini', sql.Date, fechaini);
-      where += ' AND CAST(c.fecha AS DATE) >= @fechaini';
+      params.fechaini = fechaini;
+      where += ' AND c.fecha::date >= @fechaini::date';
     }
     if (fechafin) {
-      request.input('fechafin', sql.Date, fechafin);
-      where += ' AND CAST(c.fecha AS DATE) <= @fechafin';
+      params.fechafin = fechafin;
+      where += ' AND c.fecha::date <= @fechafin::date';
     }
 
-    const result = await request.query(`
-      SELECT TOP 100 c.id, c.numerochat, c.nombreEDS, c.fecha, a.nombre
+    const result = await query(`
+      SELECT c.id, c.numerochat, c."nombreEDS", c.fecha, a.nombre
       FROM casos3cx c
-      JOIN analistas a ON c.idAnalista = a.id
+      JOIN analistas a ON c."idAnalista" = a.id
       ${where}
       ORDER BY c.fecha DESC
-    `);
+      LIMIT 100
+    `, params);
 
-    res.json(result.recordset);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

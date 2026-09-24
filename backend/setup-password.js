@@ -16,19 +16,19 @@ if (!password) {
 
 const hash = bcrypt.hashSync(password, 10);
 console.log('\n✓ Hash generado exitosamente\n');
-console.log('Copia y ejecuta en SQL Server Management Studio:\n');
+console.log('Copia y ejecuta en pgAdmin (Query Tool):\n');
 
 if (!rol || rol === 'coordinador') {
   console.log('─'.repeat(62));
   console.log('-- Coordinador (idRol = 2):');
-  console.log(`UPDATE analistas SET passwordHash = '${hash}' WHERE idRol = 2;`);
+  console.log(`UPDATE analistas SET "passwordHash" = '${hash}' WHERE "idRol" = 2;`);
   console.log('─'.repeat(62));
 }
 
 if (!rol || rol === 'supervisor') {
   console.log('─'.repeat(62));
   console.log('-- Supervisor (idRol = 3):');
-  console.log(`UPDATE analistas SET passwordHash = '${hash}' WHERE idRol = 3;`);
+  console.log(`UPDATE analistas SET "passwordHash" = '${hash}' WHERE "idRol" = 3;`);
   console.log('─'.repeat(62));
 }
 

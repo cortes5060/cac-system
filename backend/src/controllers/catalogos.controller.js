@@ -1,11 +1,9 @@
-const { pool } = require('../config/db');
+const { query } = require('../config/db');
 
 const getEstaciones = async (req, res) => {
   try {
-    const connection = await pool;
-    const result = await connection.request()
-      .query(`SELECT id, nombre FROM estaciones WHERE existe = 1 ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre FROM estaciones WHERE existe = '1' ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -13,10 +11,8 @@ const getEstaciones = async (req, res) => {
 
 const getCategorias = async (req, res) => {
   try {
-    const connection = await pool;
-    const result = await connection.request()
-      .query(`SELECT id, nombre, categoriaprincipal FROM categorias WHERE activo = 1 ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre, categoriaprincipal FROM categorias WHERE activo = '1' ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -26,15 +22,13 @@ const getCategorias = async (req, res) => {
 // " - " en categoriaprincipal. No existe como tabla propia, es agrupar por ese prefijo.
 const getGruposCategoria = async (req, res) => {
   try {
-    const connection = await pool;
-    const result = await connection.request()
-      .query(`
-        SELECT DISTINCT LEFT(RTRIM(categoriaprincipal), CHARINDEX(' - ', RTRIM(categoriaprincipal) + ' - ') - 1) AS nombre
+    const result = await query(`
+        SELECT DISTINCT split_part(RTRIM(categoriaprincipal), ' - ', 1) AS nombre
         FROM categorias
-        WHERE activo = 1 AND categoriaprincipal IS NOT NULL AND RTRIM(categoriaprincipal) != ''
+        WHERE activo = '1' AND categoriaprincipal IS NOT NULL AND RTRIM(categoriaprincipal) != ''
         ORDER BY nombre
       `);
-    res.json(result.recordset);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -42,10 +36,8 @@ const getGruposCategoria = async (req, res) => {
 
 const getTiposCaso = async (req, res) => {
   try {
-    const connection = await pool;
-    const result = await connection.request()
-      .query(`SELECT id, nombre FROM tiposCaso WHERE activo = 1 ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre FROM "tiposCaso" WHERE activo = '1' ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -53,9 +45,8 @@ const getTiposCaso = async (req, res) => {
 
 const getAnalistas = async (req, res) => {
   try {
-    const result = await (await pool).request()
-      .query(`SELECT id, nombre FROM analistas WHERE idRol = 1 ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre FROM analistas WHERE "idRol" = 1 ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -63,9 +54,8 @@ const getAnalistas = async (req, res) => {
 
 const getGrupos = async (req, res) => {
   try {
-    const result = await (await pool).request()
-      .query(`SELECT id, nombre FROM gruposColaborador ORDER BY nombre`);
-    res.json(result.recordset);
+    const result = await query(`SELECT id, nombre FROM "gruposColaborador" ORDER BY nombre`);
+    res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

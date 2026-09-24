@@ -1,4 +1,4 @@
-const { sql, pool } = require('../config/db');
+const { pool, query } = require('../config/db');
 
 // Un caso que lleva más de estas horas abierto se finaliza solo, para que no siga sumando tiempo
 const HORAS_MAX = parseInt(process.env.HORAS_MAX_CASO, 10) || 12;
@@ -13,48 +13,45 @@ async function finalizarVencidos(io) {
 
   try {
 
-    const connection = await pool;
-    const transaction = new sql.Transaction(connection);
+    const client = await pool.connect();
 
     try {
 
-      await transaction.begin();
+      await client.query('BEGIN');
 
       // Cierra el tramo abierto justo al cumplir las horas máximas (no en el momento en que corre la tarea),
       // así el tiempo del caso queda en el límite y no lo excede.
-      const result = await new sql.Request(transaction)
-        .input('horas', sql.Int, HORAS_MAX)
-        .query(`
-          DECLARE @cerrar TABLE (idCaso INT, fin DATETIME, idAnalista INT);
+      const result = await query(`
+          WITH cerrar AS (
+            UPDATE casos3cx_estados e
+            SET fin = GREATEST(c.fecha + make_interval(hours => @horas), e.inicio)
+            FROM casos3cx c
+            WHERE c.id = e."idCaso"
+              AND e.fin IS NULL
+              AND e.estado IN ('ACTIVO', 'INACTIVO')
+              AND c.fecha + make_interval(hours => @horas) <= LOCALTIMESTAMP
+            RETURNING e."idCaso", e.fin, e."idAnalista"
+          ), finalizados AS (
+            INSERT INTO casos3cx_estados ("idCaso", estado, inicio, fin, automatico, "idAnalista")
+            SELECT "idCaso", 'FINALIZADO', fin, fin, '1', "idAnalista" FROM cerrar
+          )
+          SELECT COUNT(*)::int AS cerrados FROM cerrar
+        `, { horas: HORAS_MAX }, client);
 
-          UPDATE e
-          SET fin = CASE WHEN DATEADD(HOUR, @horas, c.fecha) > e.inicio
-                         THEN DATEADD(HOUR, @horas, c.fecha) ELSE e.inicio END
-          OUTPUT INSERTED.idCaso, INSERTED.fin, INSERTED.idAnalista INTO @cerrar
-          FROM casos3cx_estados e
-          JOIN casos3cx c ON c.id = e.idCaso
-          WHERE e.fin IS NULL
-            AND e.estado IN ('ACTIVO', 'INACTIVO')
-            AND DATEADD(HOUR, @horas, c.fecha) <= GETDATE();
+      await client.query('COMMIT');
 
-          INSERT INTO casos3cx_estados (idCaso, estado, inicio, fin, automatico, idAnalista)
-          SELECT idCaso, 'FINALIZADO', fin, fin, 1, idAnalista FROM @cerrar;
+      const cantidad = result.rows[0].cerrados;
 
-          SELECT COUNT(*) AS cerrados FROM @cerrar;
-        `);
-
-      await transaction.commit();
-
-      const cerrados = result.recordset[0].cerrados;
-
-      if (cerrados > 0) {
-        console.log(`Auto-finalización: ${cerrados} caso(s) cerrado(s) por superar ${HORAS_MAX} h`);
-        io.emit('casosAutoFinalizados', { cantidad: cerrados });
+      if (cantidad > 0) {
+        console.log(`Auto-finalización: ${cantidad} caso(s) cerrado(s) por superar ${HORAS_MAX} h`);
+        io.emit('casosAutoFinalizados', { cantidad });
       }
 
     } catch (error) {
-      await transaction.rollback().catch(() => {});
+      await client.query('ROLLBACK').catch(() => {});
       throw error;
+    } finally {
+      client.release();
     }
 
   } catch (error) {

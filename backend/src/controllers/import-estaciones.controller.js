@@ -1,4 +1,4 @@
-const { sql, pool } = require('../config/db');
+const { query } = require('../config/db');
 const xlsx    = require('xlsx');
 const multer  = require('multer');
 
@@ -19,12 +19,11 @@ const previewEstaciones = async (req, res) => {
     const rows = xlsx.utils.sheet_to_json(ws, { defval: '' });
     if (!rows.length) return res.status(400).json({ error: 'Excel vacío' });
 
-    const db     = await pool;
-    const existR = await db.request().query(
-      `SELECT id, nombre, NIT, direccion, codigocliente2wdesk FROM estaciones`
+    const existR = await query(
+      `SELECT id, nombre, "NIT", direccion, codigocliente2wdesk FROM estaciones`
     );
     const existentes = new Map(
-      existR.recordset
+      existR.rows
         .filter(e => e.codigocliente2wdesk)
         .map(e => [String(e.codigocliente2wdesk).trim(), e])
     );
@@ -88,7 +87,6 @@ const confirmarEstaciones = async (req, res) => {
     const { filas, incluirAdvertencias = false } = req.body;
     if (!filas?.length) return res.status(400).json({ error: 'Sin filas' });
 
-    const db = await pool;
     let insertados = 0, actualizados = 0;
     const errores = [];
 
@@ -99,24 +97,24 @@ const confirmarEstaciones = async (req, res) => {
 
       try {
         if (f.accion === 'insertar') {
-          await db.request()
-            .input('codigo',    sql.NVarChar, f.codigo)
-            .input('nombre',    sql.NVarChar, f.nombre        || null)
-            .input('nit',       sql.NVarChar, f.nit           || null)
-            .input('direccion', sql.NVarChar, f.direccion     || null)
-            .query(`
-              INSERT INTO estaciones (codigocliente2wdesk, nombre, NIT, direccion, existe)
-              VALUES (@codigo, @nombre, @nit, @direccion, 1)
-            `);
+          await query(`
+              INSERT INTO estaciones (codigocliente2wdesk, nombre, "NIT", direccion, existe)
+              VALUES (@codigo, @nombre, @nit, @direccion, '1')
+            `, {
+              codigo:    f.codigo,
+              nombre:    f.nombre    || null,
+              nit:       f.nit       || null,
+              direccion: f.direccion || null,
+            });
           insertados++;
         } else if (f.accion === 'actualizar') {
           const sets = [];
-          const r = db.request().input('codigo', sql.NVarChar, f.codigo);
-          if (f.nombre)    { sets.push('nombre    = @nombre');    r.input('nombre',    sql.NVarChar, f.nombre); }
-          if (f.nit)       { sets.push('NIT       = @nit');       r.input('nit',       sql.NVarChar, f.nit); }
-          if (f.direccion) { sets.push('direccion = @direccion'); r.input('direccion', sql.NVarChar, f.direccion); }
+          const prm = { codigo: f.codigo };
+          if (f.nombre)    { sets.push('nombre    = @nombre');    prm.nombre    = f.nombre; }
+          if (f.nit)       { sets.push('"NIT"     = @nit');       prm.nit       = f.nit; }
+          if (f.direccion) { sets.push('direccion = @direccion'); prm.direccion = f.direccion; }
           if (sets.length) {
-            await r.query(`UPDATE estaciones SET ${sets.join(', ')} WHERE codigocliente2wdesk = @codigo`);
+            await query(`UPDATE estaciones SET ${sets.join(', ')} WHERE codigocliente2wdesk = @codigo`, prm);
             actualizados++;
           }
         }

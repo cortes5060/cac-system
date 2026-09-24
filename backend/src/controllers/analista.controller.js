@@ -1,15 +1,15 @@
-const { sql, pool } = require('../config/db');
+const { query } = require('../config/db');
 const bcrypt = require('bcryptjs');
 
 const loginAnalista = async (req, res) => {
   try {
     const { id, password } = req.body;
-    const connection = await pool;
-    const result = await connection.request()
-      .input('id', sql.Int, id)
-      .query(`SELECT id, nombre, idRol, passwordHash FROM analistas WHERE id = @id AND existe = 1`);
+    const result = await query(
+      `SELECT id, nombre, "idRol", "passwordHash" FROM analistas WHERE id = @id AND existe = '1'`,
+      { id }
+    );
 
-    const ana = result.recordset[0];
+    const ana = result.rows[0];
 
     if (!ana || ana.idRol !== 1) {
       return res.status(401).json({ error: 'Acceso no autorizado' });
@@ -33,23 +33,20 @@ const loginAnalista = async (req, res) => {
 const getAnalista = async (req, res) => {
   try {
     const { id } = req.params;
-    const connection = await pool;
-    const result = await connection.request()
-      .input("id", id)
-      .query(`
+    const result = await query(`
         SELECT
-          a.id, a.nombre, a.orden, a.activo, a.idRol,
-          ISNULL((
-            SELECT COUNT(*)
+          a.id, a.nombre, a.orden, a.activo::int AS activo, a."idRol",
+          COALESCE((
+            SELECT COUNT(*)::int
             FROM casos3cx
-            WHERE idAnalista = a.id
-              AND CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
-          ), 0) AS casosHoy
+            WHERE "idAnalista" = a.id
+              AND fecha::date = CURRENT_DATE
+          ), 0) AS "casosHoy"
         FROM analistas a
         WHERE a.id = @id
-      `);
+      `, { id });
 
-    res.json(result.recordset[0]);
+    res.json(result.rows[0]);
   } catch (error) {
     console.error('Error obteniendo analista:', error);
     res.status(500).json({ message: 'Error al obtener analista' });
@@ -62,118 +59,100 @@ const cambiarEstado = async (req, res) => {
     const { id } = req.params;
     const { activo } = req.body;
 
-    const connection = await pool;
-
-    const result = await connection.request()
-      .input("id", sql.Int, id)
-      .query(`
-        SELECT 
-          CASE 
-          WHEN CAST(GETDATE() AS TIME) 
-              BETWEEN horaentrada AND horasalida
-              AND CAST(GETDATE() AS TIME) 
-              NOT BETWEEN horaalmuerzoinicio AND horaalmuerzofin
+    const result = await query(`
+        SELECT
+          CASE
+          WHEN LOCALTIME
+              BETWEEN "HoraEntrada"::time AND "HoraSalida"::time
+              AND LOCALTIME
+              NOT BETWEEN "HoraAlmuerzoInicio"::time AND "HoraAlmuerzoFin"::time
           THEN 0
           ELSE 1
-          END AS puedeInactivarse
-          FROM horarios
+          END AS "puedeInactivarse"
+          FROM "Horarios"
           WHERE id = (
-              SELECT idhorario FROM analistas WHERE id = @id 
+              SELECT idhorario FROM analistas WHERE id = @id
           )
-      `);
+      `, { id });
 
 
-    if (result.recordset[0].puedeInactivarse == 0 && activo == 0) {
+    if (result.rows[0]?.puedeInactivarse == 0 && activo == 0) {
       return res.status(400).json(
         {
           "bloquear": true
         });
     }
 
-    const resultado = await connection.request()
-      .input("id", sql.Int, id)
-      .query(`
-        SELECT 
+    const resultado = await query(`
+        SELECT
             id,
             nombre,
             orden,
-            activo
-        FROM analistas 
+            activo::int AS activo
+        FROM analistas
         WHERE id = @id
-      `);
+      `, { id });
 
-    const analista = resultado.recordset[0];
+    const analista = resultado.rows[0];
 
     if (activo == 1) {
 
-      const casosHoyResult = await connection.request()
-        .input("id", sql.Int, id)
-        .query(`
-          SELECT COUNT(*) AS casos
+      const casosHoyResult = await query(`
+          SELECT COUNT(*)::int AS casos
           FROM casos3cx
-          WHERE idAnalista = @id
-            AND CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
-        `);
+          WHERE "idAnalista" = @id
+            AND fecha::date = CURRENT_DATE
+        `, { id });
 
-      const casosHoy = casosHoyResult.recordset[0].casos;
+      const casosHoy = casosHoyResult.rows[0].casos;
 
       if (casosHoy === 0) {
-        const primerConCasosResult = await connection.request()
-          .query(`
-            SELECT ISNULL(MIN(a.orden), 0) AS primerConCasos
+        const primerConCasosResult = await query(`
+            SELECT COALESCE(MIN(a.orden), 0) AS "primerConCasos"
             FROM analistas a
             INNER JOIN (
-              SELECT DISTINCT idAnalista
+              SELECT DISTINCT "idAnalista"
               FROM casos3cx
-              WHERE CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
-            ) c ON a.id = c.idAnalista
-            WHERE a.activo = 1
+              WHERE fecha::date = CURRENT_DATE
+            ) c ON a.id = c."idAnalista"
+            WHERE a.activo = '1'
           `);
 
-        const primerConCasos = primerConCasosResult.recordset[0].primerConCasos;
+        const primerConCasos = primerConCasosResult.rows[0].primerConCasos;
 
         if (primerConCasos > 0) {
-          await connection.request()
-            .input("desde", sql.Int, primerConCasos)
-            .query(`
+          await query(`
               UPDATE analistas
               SET orden = orden + 1
-              WHERE activo = 1 AND orden >= @desde
-            `);
+              WHERE activo = '1' AND orden >= @desde
+            `, { desde: primerConCasos });
 
-          await connection.request()
-            .input("id", sql.Int, id)
-            .input("nuevoOrden", sql.Int, primerConCasos)
-            .query(`
+          await query(`
               UPDATE analistas
-              SET activo = 1, orden = @nuevoOrden
+              SET activo = '1', orden = @nuevoOrden
               WHERE id = @id
-            `);
+            `, { id, nuevoOrden: primerConCasos });
         } else {
-          const maxOrdenResult = await connection.request()
-            .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
+          const maxOrdenResult = await query(
+            `SELECT COALESCE(MAX(orden), 0) AS "maxOrden" FROM analistas WHERE activo = '1'`
+          );
 
-          await connection.request()
-            .input("id", sql.Int, id)
-            .input("nuevoOrden", sql.Int, maxOrdenResult.recordset[0].maxOrden + 1)
-            .query(`
+          await query(`
               UPDATE analistas
-              SET activo = 1, orden = @nuevoOrden
+              SET activo = '1', orden = @nuevoOrden
               WHERE id = @id
-            `);
+            `, { id, nuevoOrden: maxOrdenResult.rows[0].maxOrden + 1 });
         }
       } else {
-        const maxOrdenResult = await connection.request()
-          .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
+        const maxOrdenResult = await query(
+          `SELECT COALESCE(MAX(orden), 0) AS "maxOrden" FROM analistas WHERE activo = '1'`
+        );
 
-        await connection.request()
-          .input("id", sql.Int, id)
-          .input("nuevoOrden", sql.Int, maxOrdenResult.recordset[0].maxOrden + 1)
-          .query(`
+        await query(`
             UPDATE analistas
-            SET activo = 1, orden = @nuevoOrden
+            SET activo = '1', orden = @nuevoOrden
             WHERE id = @id
-          `);
+          `, { id, nuevoOrden: maxOrdenResult.rows[0].maxOrden + 1 });
       }
 
       const io = req.app.get("io");
@@ -182,23 +161,19 @@ const cambiarEstado = async (req, res) => {
 
     } else {
 
-      await connection.request()
-        .input("id", sql.Int, id)
-        .query(`
+      await query(`
           UPDATE analistas
-          SET activo = 0,
+          SET activo = '0',
               orden = 0
           WHERE id = @id
-        `);
+        `, { id });
 
-      await connection.request()
-        .input("orden", sql.Int, analista.orden)
-        .query(`
+      await query(`
           UPDATE analistas
           SET orden = orden - 1
-          WHERE activo = 1
+          WHERE activo = '1'
           AND orden > @orden
-        `);
+        `, { orden: analista.orden });
 
       const io = req.app.get("io");
       io.emit("analistaActualizado", { id, activo });

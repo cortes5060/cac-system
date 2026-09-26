@@ -22,7 +22,11 @@
     @keyframes fi { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
     .section-title {
       font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
-      text-transform: uppercase; color: #9CA3AF; margin-bottom: 1rem;
+      text-transform: uppercase; color: #4B5563; margin-bottom: 1rem;
+    }
+    /* Mas aire entre tablas/graficos que estan apiladas dentro de una misma vista */
+    .tablas-separadas > :not([hidden]) ~ :not([hidden]) {
+      margin-top: 2.75rem;
     }
     th { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
     td { font-size: 0.8rem; }
@@ -247,41 +251,41 @@
       <div class="card p-4 mb-4">
         <!-- Grupos -->
         <div class="flex items-center gap-1 flex-wrap mb-3 pb-3 border-b border-gray-100">
-          <span class="text-xs font-bold text-gray-400 uppercase tracking-widest mr-1">Grupo:</span>
+          <span class="text-xs font-bold text-gray-600 uppercase tracking-widest mr-1">Grupo:</span>
           <div id="grupo-nav-tabs" class="flex items-center gap-1 flex-wrap"></div>
         </div>
         <!-- Filtros + export -->
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex items-center gap-2">
-            <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Responsable</label>
+            <label class="text-xs font-semibold text-gray-600 whitespace-nowrap">Responsable</label>
             <select id="fil-analista" class="fil-select" style="min-width:150px">
               <option value="">Todos</option>
             </select>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">EDS</label>
+            <label class="text-xs font-semibold text-gray-600 whitespace-nowrap">EDS</label>
             <div class="buscable" style="min-width:170px">
               <div class="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden" style="height:34px">
                 <input id="fil-eds-input" type="text" placeholder="Buscar EDS…" class="fil-input border-0 rounded-none" style="height:100%">
                 <button id="fil-eds-clear" onclick="buscEDS&&buscEDS.clear();cargarDashboard()" title="Limpiar"
-                  class="px-2 text-gray-400 hover:text-gray-600 text-xs flex-shrink-0" style="display:none">✕</button>
+                  class="px-2 text-gray-600 hover:text-gray-600 text-xs flex-shrink-0" style="display:none">✕</button>
               </div>
               <div id="fil-eds-list" class="buscable-list"></div>
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Grupo categoría</label>
+            <label class="text-xs font-semibold text-gray-600 whitespace-nowrap">Grupo categoría</label>
             <select id="fil-grupo-cat" class="fil-select" style="min-width:150px">
               <option value="">Todos</option>
             </select>
           </div>
           <div class="flex items-center gap-2">
-            <label class="text-xs font-semibold text-gray-400 whitespace-nowrap">Categoría</label>
+            <label class="text-xs font-semibold text-gray-600 whitespace-nowrap">Categoría</label>
             <div class="buscable" style="min-width:170px">
               <div class="flex items-center border border-gray-200 rounded-lg bg-white overflow-hidden" style="height:34px">
                 <input id="fil-cat-input" type="text" placeholder="Buscar categoría…" class="fil-input border-0 rounded-none" style="height:100%">
                 <button id="fil-cat-clear" onclick="buscCat&&buscCat.clear();cargarDashboard()" title="Limpiar"
-                  class="px-2 text-gray-400 hover:text-gray-600 text-xs flex-shrink-0" style="display:none">✕</button>
+                  class="px-2 text-gray-600 hover:text-gray-600 text-xs flex-shrink-0" style="display:none">✕</button>
               </div>
               <div id="fil-cat-list" class="buscable-list"></div>
             </div>
@@ -289,7 +293,7 @@
           <div class="flex items-center gap-2 ml-auto">
             <div id="filtros-activos" class="hidden flex items-center gap-1.5">
               <span class="text-xs bg-blue-50 text-blue-600 font-semibold px-2.5 py-1 rounded-full border border-blue-100">Filtros activos</span>
-              <button onclick="limpiarFiltros()" class="text-xs text-gray-400 hover:text-red-500 transition">Limpiar</button>
+              <button onclick="limpiarFiltros()" class="text-xs text-gray-600 hover:text-red-500 transition">Limpiar</button>
             </div>
             <div class="export-wrap">
               <button id="btn-exportar" onclick="toggleExportMenu()"
@@ -321,11 +325,11 @@
       </div>
 
       <!-- ── KPIs (siempre visibles) ──────────────────────────── -->
-      <div class="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-4" id="kpi-row"></div>
+      <div class="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-6" id="kpi-row"></div>
 
       <!-- ═══════════════════════ VISTA: RESUMEN ═══════════════════════ -->
       <div class="view active" data-view="vista-resumen">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
 
           <div class="sec-card lg:col-span-2">
             <div class="sec-header">
@@ -351,7 +355,7 @@
 
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div class="sec-card">
             <div class="sec-header">
               <div class="sec-label">
@@ -382,7 +386,7 @@
               <span class="sec-title-text">Escalación de Tickets</span>
             </div>
           </div>
-          <div class="sec-body p-5 space-y-5">
+          <div class="sec-body p-5 tablas-separadas">
 
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="kpi-escalacion"></div>
 
@@ -420,7 +424,7 @@
               <span class="sec-title-text">Antigüedad de Tickets Abiertos</span>
             </div>
           </div>
-          <div class="sec-body p-5 space-y-5">
+          <div class="sec-body p-5 tablas-separadas">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div>
                 <p class="section-title">Tickets abiertos por antigüedad</p>
@@ -444,7 +448,7 @@
               <span class="sec-title-text">Actividad por Responsable</span>
             </div>
           </div>
-          <div class="sec-body p-5 space-y-5">
+          <div class="sec-body p-5 tablas-separadas">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div>
                 <p class="section-title">Tickets por Responsable</p>
@@ -500,7 +504,7 @@
               <span class="sec-title-text">Tiempos de Respuesta (3CX ↔ 2WD)</span>
             </div>
           </div>
-          <div class="sec-body p-5 space-y-5">
+          <div class="sec-body p-5 tablas-separadas">
 
             <div class="grid grid-cols-2 xl:grid-cols-5 gap-3" id="kpi-tiempos"></div>
 
@@ -555,7 +559,7 @@
               <span class="sec-title-text">Historial de Tickets</span>
             </div>
           </div>
-          <div class="sec-body p-5 space-y-5">
+          <div class="sec-body p-5 tablas-separadas">
             <div>
               <p class="section-title">Últimos 10 Tickets Registrados</p>
               <div class="tabla-scroll"><div id="tabla-ultimos"></div></div>

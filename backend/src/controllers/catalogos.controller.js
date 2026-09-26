@@ -22,8 +22,7 @@ const getCategorias = async (req, res) => {
   }
 };
 
-// Grupo amplio de categoría (ej. "Autoatendido"), derivado del texto antes del primer
-// " - " en categoriaprincipal. No existe como tabla propia, es agrupar por ese prefijo.
+// Grupo derivado del prefijo antes de " - " en categoriaprincipal; no es una tabla propia
 const getGruposCategoria = async (req, res) => {
   try {
     const connection = await pool;

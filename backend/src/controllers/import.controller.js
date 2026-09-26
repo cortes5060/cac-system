@@ -162,7 +162,6 @@ const previewExcel = async (req, res) => {
       const estatusMatch = buscar(cat.estatus, estatusNom);
       const esCerrado    = estatusMatch?.id === 1 || estatusMatch?.id === 2;
 
-      // escalado
       let escaladoMatch;
       if (responsableNom) {
         escaladoMatch = buscar(cat.analistas, responsableNom);
@@ -275,7 +274,6 @@ const confirmarImport = async (req, res) => {
     let insertados = 0, actualizados = 0, analistasCreados = 0;
     const errores = [];
 
-    // analistas nuevos
     const analNuevosMap = new Map();
 
     const nombresNuevos = new Set();
@@ -307,7 +305,6 @@ const confirmarImport = async (req, res) => {
     }
 
 
-    // tickets
     for (const f of filas) {
       if (f.accion === 'omitir') continue;
       if (f.estado === 'error') continue;

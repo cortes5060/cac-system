@@ -8,6 +8,19 @@ if (!coordId) {
     window.location.href = 'index.html';
 }
 
+// El backend guarda la hora local (Bogotá) pero la serializa como si fuera
+// UTC (con "Z"). Si se deja que Date/toLocaleString reconviertan la zona
+// horaria, se resta el offset dos veces y la hora queda mal. Por eso se
+// leen los numeros tal cual vienen en el texto, sin conversion de zona.
+function formatearFechaCruda(f) {
+    const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!m) return '—';
+    const [, y, mo, d, h, mi] = m;
+    const h12 = (+h % 12) || 12;
+    const ampm = +h < 12 ? 'a. m.' : 'p. m.';
+    return `${d}/${mo}/${y}, ${String(h12).padStart(2, '0')}:${mi} ${ampm}`;
+}
+
 window.addEventListener('load', () => {
     document.getElementById('coordNombre').textContent = coordNombre || '';
     activarTab('analistas');
@@ -40,7 +53,7 @@ function seccionHeader(titulo, colorHex) {
 }
 
 function cargando(c) {
-    c.innerHTML = '<div class="text-gray-400 text-sm text-center py-14">Cargando...</div>';
+    c.innerHTML = '<div class="text-gray-600 text-sm text-center py-14">Cargando...</div>';
 }
 
 function errorHtml(c) {
@@ -117,7 +130,7 @@ async function seccionAnalistas(c) {
                                         ${a.activo ? 'Activo' : 'Inactivo'}
                                     </span>
                                 </td>
-                                <td class="px-5 py-3.5 font-mono text-xs text-gray-400">
+                                <td class="px-5 py-3.5 font-mono text-xs text-gray-600">
                                     ${a.activo && a.orden > 0 ? '#' + a.orden : '—'}
                                 </td>
                                 <td class="px-5 py-3.5">
@@ -179,7 +192,7 @@ function abrirModalPasswordAnalista(id, nombre, tienePassword) {
                         ? 'Se reemplaza la contraseña actual. No necesitas saber la anterior.'
                         : 'Este analista todavía no tiene contraseña configurada.'}
                 </p>
-                <label class="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Nueva contraseña</label>
+                <label class="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Nueva contraseña</label>
                 <input type="password" id="nuevaPasswordAnalista" placeholder="Mínimo 4 caracteres"
                     class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition mb-1"
                     onkeypress="if(event.key==='Enter') confirmarPasswordAnalista(${id})"/>
@@ -267,7 +280,7 @@ function renderOrden(c) {
         c.innerHTML = `
             <div class="fade-in">
                 ${seccionHeader('Orden de Atención', '#C41E3A')}
-                <div class="text-center py-12 text-gray-400 text-sm">No hay analistas activos en la cola.</div>
+                <div class="text-center py-12 text-gray-600 text-sm">No hay analistas activos en la cola.</div>
             </div>`;
         return;
     }
@@ -299,11 +312,11 @@ function renderOrden(c) {
                     ${i === 0 ? '<span class="text-xs font-bold px-2 py-1 rounded-full text-white" style="background:#C41E3A">▶ Próximo</span>' : ''}
                     <div class="flex gap-1">
                         <button onclick="moverArriba(${i})" ${i === 0 ? 'disabled' : ''}
-                            class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition disabled:opacity-25">
+                            class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-600 hover:bg-gray-100 hover:text-gray-700 transition disabled:opacity-25">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 15l-6-6-6 6"/></svg>
                         </button>
                         <button onclick="moverAbajo(${i})" ${i === _ordenLocal.length - 1 ? 'disabled' : ''}
-                            class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition disabled:opacity-25">
+                            class="w-8 h-8 rounded-lg flex items-center justify-center text-gray-600 hover:bg-gray-100 hover:text-gray-700 transition disabled:opacity-25">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
                         </button>
                     </div>
@@ -392,9 +405,9 @@ async function seccionHorarios(c) {
                                         ? `<div class="text-xs text-gray-600 font-medium">
                                                <span class="font-bold text-gray-800">${fmt(a.HoraEntrada)} – ${fmt(a.HoraSalida)}</span>
                                                <br>
-                                               <span class="text-gray-400">Almuerzo: ${fmt(a.HoraAlmuerzoInicio)} – ${fmt(a.HoraAlmuerzoFin)}</span>
+                                               <span class="text-gray-600">Almuerzo: ${fmt(a.HoraAlmuerzoInicio)} – ${fmt(a.HoraAlmuerzoFin)}</span>
                                            </div>`
-                                        : '<span class="text-xs text-gray-400 italic">Sin horario</span>'}
+                                        : '<span class="text-xs text-gray-600 italic">Sin horario</span>'}
                                 </td>
                                 <td class="px-5 py-3.5">
                                     <select id="sel-hor-${a.id}"
@@ -420,13 +433,13 @@ async function seccionHorarios(c) {
                 </div>
 
                 <div class="mt-6 bg-gray-50 border border-gray-200 rounded-2xl p-4">
-                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Horarios disponibles</p>
+                    <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Horarios disponibles</p>
                     <div class="space-y-1.5">
                         ${horarios.map((h, i) => `
                         <div class="flex items-center gap-3 text-sm text-gray-600">
                             <span class="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style="background:#1565C0">${i + 1}</span>
                             <span><strong>${fmt(h.HoraEntrada)} – ${fmt(h.HoraSalida)}</strong>
-                                <span class="text-gray-400 ml-2">Almuerzo: ${fmt(h.HoraAlmuerzoInicio)} – ${fmt(h.HoraAlmuerzoFin)}</span>
+                                <span class="text-gray-600 ml-2">Almuerzo: ${fmt(h.HoraAlmuerzoInicio)} – ${fmt(h.HoraAlmuerzoFin)}</span>
                             </span>
                         </div>`).join('')}
                     </div>
@@ -445,28 +458,28 @@ async function seccionBuscar(c) {
             ${seccionHeader('Buscar Casos 3CX', '#1565C0')}
             <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4">
                 <div>
-                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Número de Chat</label>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Número de Chat</label>
                     <input id="bus_numero" type="text" inputmode="numeric" placeholder="Ej. 123456789"
                         class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Nombre EDS</label>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Nombre EDS</label>
                     <input id="bus_eds" type="text" placeholder="Ej. EDS Centro"
                         class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha Inicio</label>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha Inicio</label>
                     <input id="bus_fecha_ini" type="date"
                         class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha Fin</label>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha Fin</label>
                     <input id="bus_fecha_fin" type="date"
                         class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
                 </div>
             </div>
             <div id="bus_resultados">
-                <div class="text-center py-10 text-gray-400 text-sm">Escribe algo para buscar</div>
+                <div class="text-center py-10 text-gray-600 text-sm">Escribe algo para buscar</div>
             </div>
         </div>`;
 
@@ -490,11 +503,11 @@ async function ejecutarBusqueda() {
     if (!div) return;
 
     if (!numero && !eds && !fechaIni && !fechaFin) {
-        div.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">Escribe algo para buscar</div>';
+        div.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Escribe algo para buscar</div>';
         return;
     }
 
-    div.innerHTML = '<div class="text-center py-6 text-gray-400 text-sm">Buscando...</div>';
+    div.innerHTML = '<div class="text-center py-6 text-gray-600 text-sm">Buscando...</div>';
 
     const qs = new URLSearchParams();
     if (numero)   qs.set('numero', numero);
@@ -506,7 +519,7 @@ async function ejecutarBusqueda() {
         const data = await fetch(`${API}/api/coordinador/casos?${qs}`).then(r => r.json());
 
         if (!data.length) {
-            div.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">Sin resultados</div>';
+            div.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Sin resultados</div>';
             return;
         }
 
@@ -524,14 +537,10 @@ async function ejecutarBusqueda() {
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-100">
                         ${data.map(c => {
-                            const fecha = new Date(c.fecha).toLocaleString('es-CO', {
-                                timeZone: 'America/Bogota',
-                                day: '2-digit', month: '2-digit', year: 'numeric',
-                                hour: '2-digit', minute: '2-digit'
-                            });
+                            const fecha = formatearFechaCruda(c.fecha);
                             return `
                             <tr class="hover:bg-blue-50 transition">
-                                <td class="px-4 py-3 text-gray-400 font-mono text-xs">#${c.id}</td>
+                                <td class="px-4 py-3 text-gray-600 font-mono text-xs">#${c.id}</td>
                                 <td class="px-4 py-3 font-bold text-gray-800">${c.numerochat}</td>
                                 <td class="px-4 py-3 text-gray-600">${c.nombreEDS || '—'}</td>
                                 <td class="px-4 py-3 text-gray-500">${fecha}</td>
@@ -540,7 +549,7 @@ async function ejecutarBusqueda() {
                         }).join('')}
                     </tbody>
                 </table>
-                <div class="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">
+                <div class="px-4 py-2 text-xs text-gray-600 bg-gray-50 border-t border-gray-100">
                     ${data.length} resultado${data.length !== 1 ? 's' : ''}
                 </div>
             </div>`;
@@ -559,7 +568,7 @@ async function seccionImportar(c) {
             ${seccionHeader('Importar desde Excel', '#1B5E20')}
 
             <div class="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-5 max-w-xl">
-                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Seleccionar archivo</p>
+                <p class="text-xs font-bold text-gray-600 uppercase tracking-widest mb-3">Seleccionar archivo</p>
                 <div class="flex gap-3 items-center flex-wrap">
                     <label class="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-semibold text-sm cursor-pointer hover:opacity-90 transition btn-navy">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -570,7 +579,7 @@ async function seccionImportar(c) {
                         <input type="file" id="imp_archivo" accept=".xlsx,.xls" class="hidden"
                             onchange="onArchivoSeleccionado(this)"/>
                     </label>
-                    <span id="imp_nombre" class="text-sm text-gray-400 italic">Ningún archivo seleccionado</span>
+                    <span id="imp_nombre" class="text-sm text-gray-600 italic">Ningún archivo seleccionado</span>
                 </div>
                 <div class="mt-4">
                     <button id="imp_btn_preview" onclick="previsualizarExcel()" disabled
@@ -596,7 +605,7 @@ function onArchivoSeleccionado(input) {
         btn.disabled = false;
     } else {
         nombre.textContent = 'Ningún archivo seleccionado';
-        nombre.className   = 'text-sm text-gray-400 italic';
+        nombre.className   = 'text-sm text-gray-600 italic';
         btn.disabled = true;
     }
     _importPreview = null;
@@ -688,7 +697,7 @@ function renderPreviewImport(div, data) {
             <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5 max-w-3xl">
                 <div class="bg-white border border-gray-200 rounded-xl px-3 py-3 text-center">
                     <div class="text-2xl font-black text-gray-700">${total}</div>
-                    <div class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Total</div>
+                    <div class="text-xs text-gray-600 uppercase tracking-wide mt-0.5">Total</div>
                 </div>
                 <div class="bg-green-50 border border-green-200 rounded-xl px-3 py-3 text-center">
                     <div class="text-2xl font-black text-green-700">${insertar}</div>
@@ -699,8 +708,8 @@ function renderPreviewImport(div, data) {
                     <div class="text-xs text-blue-600 uppercase tracking-wide mt-0.5">Actualizar</div>
                 </div>
                 <div class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-center">
-                    <div class="text-2xl font-black text-gray-400">${omitir}</div>
-                    <div class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Sin cambios</div>
+                    <div class="text-2xl font-black text-gray-600">${omitir}</div>
+                    <div class="text-xs text-gray-600 uppercase tracking-wide mt-0.5">Sin cambios</div>
                 </div>
                 <div class="bg-red-50 border border-red-200 rounded-xl px-3 py-3 text-center">
                     <div class="text-2xl font-black text-red-600">${erroresBloqueantes}</div>
@@ -713,7 +722,7 @@ function renderPreviewImport(div, data) {
             </div>
 
             ${acTodo === 0 && erroresBloqueantes === 0 ? `
-                <div class="text-center py-8 text-gray-400 text-sm">No hay filas para importar o actualizar.</div>
+                <div class="text-center py-8 text-gray-600 text-sm">No hay filas para importar o actualizar.</div>
             ` : acTodo > 0 ? `
                 <div class="flex gap-3 mb-4 flex-wrap">
                     ${btnOK}
@@ -745,7 +754,7 @@ function renderPreviewImport(div, data) {
                             if (f.estado === 'error') {
                                 badge = '<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-bold text-xs">✗ SIN CLIENTE</span>';
                             } else if (f.accion === 'omitir') {
-                                badge = '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-bold text-xs">= IGUAL</span>';
+                                badge = '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-bold text-xs">= IGUAL</span>';
                             } else if (f.accion === 'actualizar' && f.estado === 'ok') {
                                 badge = '<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold text-xs">ACTUALIZAR</span>';
                             } else if (f.accion === 'insertar' && f.estado === 'ok') {
@@ -759,7 +768,7 @@ function renderPreviewImport(div, data) {
                                 : '—';
                             return `
                             <tr class="hover:bg-gray-50 ${f.estado === 'error' ? 'bg-red-50' : f.accion === 'omitir' ? 'opacity-40' : ''}">
-                                <td class="px-3 py-2 text-gray-400">${f.fila}</td>
+                                <td class="px-3 py-2 text-gray-600">${f.fila}</td>
                                 <td class="px-3 py-2">${badge}</td>
                                 <td class="px-3 py-2 font-mono text-gray-500">${esc(f.codigo2wd) || '—'}</td>
                                 <td class="px-3 py-2 text-gray-800 max-w-[160px] truncate" title="${esc(f.casoAtendido)}">${esc(f.casoAtendido) || '—'}</td>
@@ -768,19 +777,19 @@ function renderPreviewImport(div, data) {
                                         ? `<span class="text-gray-700">${esc(f.eds)}</span>`
                                         : f.clienteNoRegistrado
                                             ? `<span class="text-red-500 font-semibold">${esc(f.eds) || '—'}</span>`
-                                            : `<span class="text-gray-400">—</span>`
+                                            : `<span class="text-gray-600">—</span>`
                                     }
                                 </td>
-                                <td class="px-3 py-2 ${f.idAnalista ? 'text-gray-700' : (f.creadoPorNom ? 'text-red-500' : 'text-gray-400')}">${esc(f.creadoPorNom) || '—'}</td>
+                                <td class="px-3 py-2 ${f.idAnalista ? 'text-gray-700' : (f.creadoPorNom ? 'text-red-500' : 'text-gray-600')}">${esc(f.creadoPorNom) || '—'}</td>
                                 <td class="px-3 py-2 ${f.escalado && f.escalado !== f.idAnalista ? 'text-purple-700 font-semibold' : 'text-gray-600'}">${esc(f.responsableNom) || '—'}</td>
-                                <td class="px-3 py-2 ${f.idEstatus ? 'text-gray-700' : 'text-gray-400'}">${esc(f.estatusNom) || '—'}</td>
+                                <td class="px-3 py-2 ${f.idEstatus ? 'text-gray-700' : 'text-gray-600'}">${esc(f.estatusNom) || '—'}</td>
                                 <td class="px-3 py-2">${cambios}</td>
                             </tr>`;
                         }).join('')}
                     </tbody>
                 </table>
                 ${filas.length > 50 ? `
-                    <div class="px-4 py-2 text-xs text-gray-400 text-center bg-gray-50 border-t border-gray-100">
+                    <div class="px-4 py-2 text-xs text-gray-600 text-center bg-gray-50 border-t border-gray-100">
                         Mostrando 50 de ${filas.length} filas
                     </div>` : ''}
             </div>
@@ -824,7 +833,7 @@ async function confirmarImportacion(incluirAdvertencias) {
           detalle.innerHTML = `<p class="text-xs font-bold text-red-700 uppercase tracking-wide mb-1">Detalle de errores</p>
             <ul class="space-y-0.5">${data.errores.slice(0,10).map(e =>
               `<li class="text-xs text-red-600">• ${e.replace(/</g,'&lt;')}</li>`
-            ).join('')}${data.errores.length > 10 ? `<li class="text-xs text-gray-400">… y ${data.errores.length - 10} más</li>` : ''}</ul>`;
+            ).join('')}${data.errores.length > 10 ? `<li class="text-xs text-gray-600">… y ${data.errores.length - 10} más</li>` : ''}</ul>`;
           msg.insertAdjacentElement('afterend', detalle);
         }
 
@@ -844,7 +853,7 @@ async function seccionImportarClientes(c) {
         <div class="fade-in">
             ${seccionHeader('Importar Clientes desde Excel', '#1565C0')}
             <div class="bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-5 max-w-xl">
-                <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Seleccionar archivo</p>
+                <p class="text-xs font-bold text-gray-600 uppercase tracking-widest mb-3">Seleccionar archivo</p>
                 <div class="flex gap-3 items-center flex-wrap">
                     <label class="flex items-center gap-2 px-5 py-2.5 text-white rounded-xl font-semibold text-sm cursor-pointer hover:opacity-90 transition btn-navy">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -855,7 +864,7 @@ async function seccionImportarClientes(c) {
                         <input type="file" id="cli_archivo" accept=".xlsx,.xls" class="hidden"
                             onchange="onArchivoClienteSeleccionado(this)"/>
                     </label>
-                    <span id="cli_nombre" class="text-sm text-gray-400 italic">Ningún archivo seleccionado</span>
+                    <span id="cli_nombre" class="text-sm text-gray-600 italic">Ningún archivo seleccionado</span>
                 </div>
                 <div class="mt-4">
                     <button id="cli_btn_preview" onclick="previsualizarClientes()" disabled
@@ -880,7 +889,7 @@ function onArchivoClienteSeleccionado(input) {
         btn.disabled = false;
     } else {
         nombre.textContent = 'Ningún archivo seleccionado';
-        nombre.className   = 'text-sm text-gray-400 italic';
+        nombre.className   = 'text-sm text-gray-600 italic';
         btn.disabled = true;
     }
     _importClientesPreview = null;
@@ -955,7 +964,7 @@ function renderPreviewClientes(div, data) {
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5 max-w-2xl">
                 <div class="bg-white border border-gray-200 rounded-xl px-3 py-3 text-center">
                     <div class="text-2xl font-black text-gray-700">${total}</div>
-                    <div class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Total</div>
+                    <div class="text-xs text-gray-600 uppercase tracking-wide mt-0.5">Total</div>
                 </div>
                 <div class="bg-green-50 border border-green-200 rounded-xl px-3 py-3 text-center">
                     <div class="text-2xl font-black text-green-700">${insertar}</div>
@@ -966,13 +975,13 @@ function renderPreviewClientes(div, data) {
                     <div class="text-xs text-blue-600 uppercase tracking-wide mt-0.5">Actualizar</div>
                 </div>
                 <div class="bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 text-center">
-                    <div class="text-2xl font-black text-gray-400">${omitir}</div>
-                    <div class="text-xs text-gray-400 uppercase tracking-wide mt-0.5">Sin cambios</div>
+                    <div class="text-2xl font-black text-gray-600">${omitir}</div>
+                    <div class="text-xs text-gray-600 uppercase tracking-wide mt-0.5">Sin cambios</div>
                 </div>
             </div>
 
             ${acTodo === 0 ? `
-                <div class="text-center py-8 text-gray-400 text-sm">No hay clientes para importar o actualizar.</div>
+                <div class="text-center py-8 text-gray-600 text-sm">No hay clientes para importar o actualizar.</div>
             ` : `
                 <div class="flex gap-3 mb-4 flex-wrap">
                     ${btnOK}
@@ -999,7 +1008,7 @@ function renderPreviewClientes(div, data) {
                         ${filas.slice(0, 100).map(f => {
                             let badge;
                             if (f.accion === 'omitir') {
-                                badge = '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-bold text-xs">= IGUAL</span>';
+                                badge = '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-bold text-xs">= IGUAL</span>';
                             } else if (f.accion === 'actualizar' && f.estado === 'ok') {
                                 badge = '<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold text-xs">ACTUALIZAR</span>';
                             } else if (f.accion === 'insertar' && f.estado === 'ok') {
@@ -1012,7 +1021,7 @@ function renderPreviewClientes(div, data) {
                                 : '—';
                             return `
                             <tr class="hover:bg-gray-50 ${f.accion === 'omitir' ? 'opacity-40' : ''}">
-                                <td class="px-3 py-2 text-gray-400">${f.fila}</td>
+                                <td class="px-3 py-2 text-gray-600">${f.fila}</td>
                                 <td class="px-3 py-2">${badge}</td>
                                 <td class="px-3 py-2 font-mono text-gray-600">${esc(f.codigo) || '—'}</td>
                                 <td class="px-3 py-2 text-gray-800 max-w-[200px] truncate">${esc(f.nombre) || '—'}</td>
@@ -1024,7 +1033,7 @@ function renderPreviewClientes(div, data) {
                     </tbody>
                 </table>
                 ${filas.length > 100 ? `
-                    <div class="px-4 py-2 text-xs text-gray-400 text-center bg-gray-50 border-t border-gray-100">
+                    <div class="px-4 py-2 text-xs text-gray-600 text-center bg-gray-50 border-t border-gray-100">
                         Mostrando 100 de ${filas.length} filas
                     </div>` : ''}
             </div>

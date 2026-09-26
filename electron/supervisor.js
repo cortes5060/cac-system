@@ -2,6 +2,21 @@ const supervId     = localStorage.getItem('supervId');
 const supervNombre = localStorage.getItem('supervNombre');
 if (!supervId) window.location.href = 'index.html';
 
+// El backend guarda la hora local (Bogotá) pero la serializa como si fuera
+// UTC (con "Z"). Si se deja que Date/toLocaleString reconviertan la zona
+// horaria, se resta el offset dos veces y la hora queda mal. Por eso se
+// leen los numeros tal cual vienen en el texto, sin conversion de zona.
+// (No aplica a fechas creadas en el navegador con "new Date()", esas si
+// son un instante real y su conversion de zona horaria es correcta.)
+function formatearFechaCruda(f) {
+  const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return '—';
+  const [, y, mo, d, h, mi] = m;
+  const h12 = (+h % 12) || 12;
+  const ampm = +h < 12 ? 'a. m.' : 'p. m.';
+  return `${d}/${mo}/${y}, ${String(h12).padStart(2, '0')}:${mi} ${ampm}`;
+}
+
 let mesActual, anioActual;
 let filtroAnalista = '', filtroEDS = '', filtroCategoria = '', filtroGrupoCategoria = '';
 let filtroGrupo = 0;  // 0 = General (todos los grupos)
@@ -488,13 +503,13 @@ function abrirModalCorreo() {
           Se adjunta un PDF con todas las secciones del panel (con los filtros y el período aplicados ahora).
         </p>
         <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Destinatarios</label>
+          <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Destinatarios</label>
           <input id="correo-destinatarios" type="text" placeholder="correo1@ejemplo.com, correo2@ejemplo.com"
             class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
-          <p class="text-xs text-gray-400 mt-1">Separa varios correos con comas.</p>
+          <p class="text-xs text-gray-600 mt-1">Separa varios correos con comas.</p>
         </div>
         <div>
-          <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Mensaje (opcional)</label>
+          <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Mensaje (opcional)</label>
           <textarea id="correo-mensaje" rows="3" placeholder="Se agrega al cuerpo del correo"
             class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"></textarea>
         </div>
@@ -672,7 +687,7 @@ function renderKPIs(d) {
   row.innerHTML = KPI_DEFS.map((k, i) => `
     <div class="kpi-card p-5 fade-in">
       <div class="flex items-start justify-between mb-3">
-        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest leading-tight">${k.label}</p>
+        <p class="text-xs font-bold text-gray-600 uppercase tracking-widest leading-tight">${k.label}</p>
         <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:${k.bg}">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="${k.color}" stroke-width="2">
             ${k.icon}
@@ -680,7 +695,7 @@ function renderKPIs(d) {
         </div>
       </div>
       <p class="font-black text-gray-800 leading-tight mb-1" style="font-size:${typeof valores[i]==='number' && valores[i]>999 ? '1.6rem' : '1.75rem'}">${valores[i]}</p>
-      <p class="text-xs text-gray-400">${subs[i]}</p>
+      <p class="text-xs text-gray-600">${subs[i]}</p>
     </div>
   `).join('');
 }
@@ -971,7 +986,7 @@ function renderAntiguedad(d) {
       <tbody class="bg-white divide-y divide-gray-100">
         ${lista.map((t, i) => `
         <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i + 1}</td>
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i + 1}</td>
           <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido || ''}">${t.casoAtendido || '—'}</td>
           <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS || ''}">${t.EDS || '—'}</td>
@@ -1011,7 +1026,7 @@ function renderTablaUltimos(data) {
           const pCol = { 'Alta': 'text-red-600 font-bold', 'Media': 'text-orange-500 font-semibold', 'Baja': 'text-green-600' };
           return `
         <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
           <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido||''}">${t.casoAtendido || '—'}</td>
           <td class="px-4 py-2.5 text-gray-700 whitespace-nowrap">${t.analista}</td>
@@ -1019,8 +1034,8 @@ function renderTablaUltimos(data) {
           <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.categoria}">${t.categoria}</td>
           <td class="px-4 py-2.5">${tipoBadge(t.tipoCaso)}</td>
           <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus || '—'}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad] || 'text-gray-400'}">${t.prioridad || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-400 text-xs whitespace-nowrap">${t.fechaRegistro || '—'}</td>
+          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad] || 'text-gray-600'}">${t.prioridad || '—'}</td>
+          <td class="px-4 py-2.5 text-gray-600 text-xs whitespace-nowrap">${t.fechaRegistro || '—'}</td>
         </tr>`;}).join('')}
       </tbody>
     </table>`;
@@ -1035,7 +1050,7 @@ function renderTablaEDS(data) {
       <tbody class="bg-white divide-y divide-gray-100">
         ${(() => { const gran = data.reduce((s,r) => s+r.total,0)||1; return data.map((r, i) => `
         <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
           <td class="px-4 py-2.5 font-medium text-gray-800 max-w-44 truncate" title="${r.EDS}">${r.EDS}</td>
           <td class="px-4 py-2.5">
             <div class="flex items-center gap-2">
@@ -1066,7 +1081,7 @@ function renderKPIsEscalacion(d) {
       <div class="flex-1 min-w-0">
         <div class="text-xs font-bold uppercase tracking-wide mb-0.5" style="color:${k.color}">${k.label}</div>
         <div class="text-xl font-black text-gray-800 truncate">${k.value}</div>
-        <div class="text-xs text-gray-400 mt-0.5">${k.sub}</div>
+        <div class="text-xs text-gray-600 mt-0.5">${k.sub}</div>
       </div>
     </div>`).join('');
 }
@@ -1104,14 +1119,14 @@ function renderTablaAltaPrioridad(data) {
       <tbody class="bg-white divide-y divide-gray-100">
         ${data.map((t, i) => `
         <tr class="hover:bg-red-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
           <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
           <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
           <td class="px-4 py-2.5 text-gray-600 whitespace-nowrap">${t.creador}</td>
           <td class="px-4 py-2.5 whitespace-nowrap ${t.fueEscalado ? 'text-purple-700 font-semibold' : 'text-gray-600'}">${t.escaladoA}${t.fueEscalado ? ' ↑' : ''}</td>
           <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.fechaRegistro}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1127,7 +1142,7 @@ function renderTablaEscaladosActivos(data) {
       <tbody class="bg-white divide-y divide-gray-100">
         ${data.map((t, i) => `
         <tr class="hover:bg-purple-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono">${i+1}</td>
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
           <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
           <td class="px-4 py-2.5 font-medium text-gray-800 max-w-36 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
           <td class="px-4 py-2.5 text-gray-600 max-w-24 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
@@ -1135,8 +1150,8 @@ function renderTablaEscaladosActivos(data) {
           <td class="px-4 py-2.5 text-purple-700 font-semibold whitespace-nowrap">${t.escaladoA}</td>
           <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${t.grupo}</td>
           <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad]||'text-gray-400'}">${t.prioridad}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-400 whitespace-nowrap">${t.fechaRegistro}</td>
+          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad]||'text-gray-600'}">${t.prioridad}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.fechaRegistro}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1164,7 +1179,7 @@ function renderTiempos(d) {
   if (!kpiEl) return;
 
   if (!d || d.error) {
-    kpiEl.innerHTML = `<p class="col-span-full text-center text-gray-400 text-sm py-6">
+    kpiEl.innerHTML = `<p class="col-span-full text-center text-gray-600 text-sm py-6">
       No se pudieron cargar los tiempos de respuesta${d?.error ? ': ' + escT(d.error) : ''}.
       ¿Ya se ejecutó la migración de la base de datos?</p>`;
     ['chart-t-analista', 'chart-t-tipo', 'chart-t-categoria', 'chart-t-prioridad', 'chart-t-estatus', 'chart-t-cobertura']
@@ -1194,7 +1209,7 @@ function renderTiempos(d) {
       <div class="flex-1 min-w-0">
         <div class="text-xs font-bold uppercase tracking-wide mb-0.5" style="color:${x.color}">${x.label}</div>
         <div class="text-xl font-black text-gray-800 truncate">${x.value}</div>
-        <div class="text-xs text-gray-400 mt-0.5">${x.sub}</div>
+        <div class="text-xs text-gray-600 mt-0.5">${x.sub}</div>
       </div>
     </div>`).join('');
 
@@ -1276,7 +1291,7 @@ function renderChartCobertura(k) {
 function renderTablaSinTicket(data) {
   const el = document.getElementById('tabla-sin-ticket');
   if (!data?.length) {
-    el.innerHTML = `<p class="text-center text-gray-400 text-sm py-8">Todos los casos del período tienen ticket vinculado</p>`;
+    el.innerHTML = `<p class="text-center text-gray-600 text-sm py-8">Todos los casos del período tienen ticket vinculado</p>`;
     return;
   }
 
@@ -1286,9 +1301,8 @@ function renderTablaSinTicket(data) {
       <tbody class="bg-white divide-y divide-gray-100">
         ${data.map(c => `
         <tr class="hover:bg-gray-50 transition">
-          <td class="px-4 py-2.5 text-gray-400 font-mono text-xs">${c.id}</td>
-          <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${new Date(c.fecha).toLocaleString('es-CO',
-            { timeZone: 'America/Bogota', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+          <td class="px-4 py-2.5 text-gray-600 font-mono text-xs">${c.id}</td>
+          <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${formatearFechaCruda(c.fecha)}</td>
           <td class="px-4 py-2.5 text-xs whitespace-nowrap">${c.tipo === 'LLAMADA' ? '📞 Llamada' : '💬 Chat'}</td>
           <td class="px-4 py-2.5 font-bold text-gray-800">${escT(c.numerochat)}</td>
           <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${escT(c.nombreEDS)}">${escT(c.nombreEDS) || '—'}</td>
@@ -1301,7 +1315,7 @@ function renderTablaSinTicket(data) {
 }
 
 function sinDatos() {
-  return `<p class="text-center text-gray-400 text-sm py-8">Sin datos para este período</p>`;
+  return `<p class="text-center text-gray-600 text-sm py-8">Sin datos para este período</p>`;
 }
 
 function cerrarSesion() {

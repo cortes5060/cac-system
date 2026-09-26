@@ -353,7 +353,6 @@ const tomarCaso = async (req, res) => {
 
     if (tipo === 'CHAT') {
 
-      // Obtener analista siguiente
       const analistaResult = await new sql.Request(transaction).query(`
         SELECT TOP 1 id, nombre, orden
         FROM analistas WITH (UPDLOCK, ROWLOCK)
@@ -371,7 +370,6 @@ const tomarCaso = async (req, res) => {
       const analista = analistaResult.recordset[0];
       idAnalista = analista.id;
 
-      // Ajustar orden
       await new sql.Request(transaction)
         .input('orden', sql.Int, analista.orden)
         .query(`
@@ -381,7 +379,6 @@ const tomarCaso = async (req, res) => {
           AND orden > @orden
         `);
 
-      // Obtener último orden
       const maxOrdenResult = await new sql.Request(transaction).query(`
         SELECT count(orden) AS maxOrden
         FROM analistas
@@ -390,7 +387,6 @@ const tomarCaso = async (req, res) => {
 
       const maxOrden = maxOrdenResult.recordset[0].maxOrden;
 
-      // Enviar analista al final
       if (analista.orden !== maxOrden) {
         await new sql.Request(transaction)
           .input('nuevoOrden', sql.Int, maxOrden)
@@ -420,7 +416,6 @@ const tomarCaso = async (req, res) => {
 
     }
 
-    // Insertar caso
     const insertResult = await new sql.Request(transaction)
       .input('idAnalista', sql.Int, idAnalista)
       .input('numerochat', sql.VarChar(50), numerochat)
@@ -446,7 +441,6 @@ const tomarCaso = async (req, res) => {
 
     await transaction.commit();
 
-    // Caso recién insertado
     const nuevoCaso = await connection.request()
       .input('idCaso', sql.Int, idCaso)
       .query(`
@@ -458,7 +452,6 @@ const tomarCaso = async (req, res) => {
 
     const caso = nuevoCaso.recordset[0];
 
-    // Socket
     const io = req.app.get("io");
     io.emit("nuevoCaso3CX", caso);
 
@@ -604,12 +597,6 @@ const pasarCaso = async (req, res) => {
 };
 
 
-// Cambia el estado de un caso:
-//   ACTIVO     -> el cliente responde
-//   INACTIVO   -> el cliente no responde
-//   FINALIZADO -> caso cerrado
-// El tiempo de ejecución del caso es ACTIVO + INACTIVO (corre hasta que se finaliza).
-// Cierra el tramo abierto y abre uno nuevo; si ya está en ese estado no hace nada.
 // FINALIZADO es definitivo: detiene el reloj y el caso ya no admite más cambios.
 const ESTADOS = ['ACTIVO', 'INACTIVO', 'FINALIZADO'];
 

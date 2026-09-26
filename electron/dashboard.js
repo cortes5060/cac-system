@@ -310,23 +310,31 @@ function escapeHtml(v) {
     }[ch]));
 }
 
+// El backend guarda la hora local (Bogotá) pero la serializa como si fuera
+// UTC (con "Z"). Si se deja que Date/toLocaleString reconviertan la zona
+// horaria, se resta el offset dos veces y la hora queda mal. Por eso se
+// leen los numeros tal cual vienen en el texto, sin conversion de zona.
+function partesFecha(f) {
+    const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!m) return null;
+    const [, y, mo, d, h, mi] = m;
+    return { y, mo, d, h: +h, mi };
+}
+
 function formatearFecha(f) {
-    return new Date(f).toLocaleString("es-CO", {
-        timeZone: "America/Bogota",
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric"
-    });
+    const p = partesFecha(f);
+    if (!p) return "—";
+    const h12 = (p.h % 12) || 12;
+    const ampm = p.h < 12 ? "a. m." : "p. m.";
+    return `${p.d}/${p.mo}/${p.y}, ${String(h12).padStart(2, "0")}:${p.mi} ${ampm}`;
 }
 
 function formatearHora(f) {
-    return new Date(f).toLocaleTimeString("es-CO", {
-        timeZone: "America/Bogota",
-        hour: "2-digit",
-        minute: "2-digit"
-    });
+    const p = partesFecha(f);
+    if (!p) return "—";
+    const h12 = (p.h % 12) || 12;
+    const ampm = p.h < 12 ? "a. m." : "p. m.";
+    return `${String(h12).padStart(2, "0")}:${p.mi} ${ampm}`;
 }
 
 function formatearDuracion(seg) {
@@ -371,7 +379,7 @@ async function cargarUltimos10() {
 
         let filas = casos.map(c => `
             <tr class="hover:bg-blue-50 transition text-sm">
-                <td class="px-4 py-3 text-gray-400 font-mono text-xs">#${c.id}</td>
+                <td class="px-4 py-3 text-gray-600 font-mono text-xs">#${c.id}</td>
                 <td class="px-4 py-3">${badgeTipo(c.tipo)}</td>
                 <td class="px-4 py-3 font-bold text-gray-800">${escapeHtml(c.numerochat)}</td>
                 <td class="px-4 py-3 text-gray-600">${escapeHtml(c.nombreEDS) || '<span class="text-gray-300">—</span>'}</td>
@@ -490,14 +498,14 @@ function renderMisCasos() {
                 <td class="px-3 py-2.5 align-top">
                     <div class="flex items-center gap-2">${badgeTipo(c.tipo)}
                         <span class="font-bold text-gray-800">${escapeHtml(c.numerochat)}</span></div>
-                    <div class="text-xs text-gray-400 mt-0.5">#${c.id} · ${formatearHora(c.fecha)}${c.nombreEDS ? " · " + escapeHtml(c.nombreEDS) : ""}</div>
+                    <div class="text-xs text-gray-600 mt-0.5">#${c.id} · ${formatearHora(c.fecha)}${c.nombreEDS ? " · " + escapeHtml(c.nombreEDS) : ""}</div>
                     ${etiquetaTraspaso(c)}
                 </td>
                 <td class="px-3 py-2.5 align-top space-y-1.5">${clienteBtns}${casoBtns}</td>
                 <td class="px-3 py-2.5 align-top">
                     <dl class="tiempos">
-                        <dt title="Con respuesta">Resp</dt><dd><span id="tAct-${c.id}"></span> <span class="text-gray-400 font-normal">(${c.vecesActivo}×)</span></dd>
-                        <dt title="Sin respuesta">Sin</dt><dd><span id="tIna-${c.id}"></span> <span class="text-gray-400 font-normal">(${c.vecesInactivo}×)</span></dd>
+                        <dt title="Con respuesta">Resp</dt><dd><span id="tAct-${c.id}"></span> <span class="text-gray-600 font-normal">(${c.vecesActivo}×)</span></dd>
+                        <dt title="Sin respuesta">Sin</dt><dd><span id="tIna-${c.id}"></span> <span class="text-gray-600 font-normal">(${c.vecesInactivo}×)</span></dd>
                         <dt title="Ejecución total">Ejec</dt><dd id="tEje-${c.id}"></dd>
                     </dl>
                 </td>
@@ -822,8 +830,8 @@ async function ejecutarBusquedaCasos() {
 
             const tiemposCelda = c.estado ? `
                 <dl class="tiempos">
-                    <dt title="Con respuesta">Resp</dt><dd><span id="tActB-${c.id}"></span> <span class="text-gray-400 font-normal">(${c.vecesActivo}×)</span></dd>
-                    <dt title="Sin respuesta">Sin</dt><dd><span id="tInaB-${c.id}"></span> <span class="text-gray-400 font-normal">(${c.vecesInactivo}×)</span></dd>
+                    <dt title="Con respuesta">Resp</dt><dd><span id="tActB-${c.id}"></span> <span class="text-gray-600 font-normal">(${c.vecesActivo}×)</span></dd>
+                    <dt title="Sin respuesta">Sin</dt><dd><span id="tInaB-${c.id}"></span> <span class="text-gray-600 font-normal">(${c.vecesInactivo}×)</span></dd>
                     <dt title="Ejecución total">Ejec</dt><dd id="tEjeB-${c.id}"></dd>
                 </dl>` : "—";
 
@@ -832,7 +840,7 @@ async function ejecutarBusquedaCasos() {
                 <td class="px-4 py-3 align-top">
                     <div class="flex items-center gap-2">${badgeTipo(c.tipo)}
                         <span class="font-bold text-gray-800">${escapeHtml(c.numerochat)}</span></div>
-                    <div class="text-xs text-gray-400 mt-0.5">#${c.id} · ${formatearFecha(c.fecha)}${c.nombreEDS ? " · " + escapeHtml(c.nombreEDS) : ""}</div>
+                    <div class="text-xs text-gray-600 mt-0.5">#${c.id} · ${formatearFecha(c.fecha)}${c.nombreEDS ? " · " + escapeHtml(c.nombreEDS) : ""}</div>
                     ${etiquetaTraspaso(c)}
                 </td>
                 <td class="px-4 py-3 align-top space-y-1.5">${estadoCelda}</td>
@@ -1100,7 +1108,7 @@ async function mostrarModulo(tipo) {
                     <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
                     <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Mis casos de hoy</h2>
                 </div>
-                <div id="tablaMisCasos" class="text-gray-400 text-sm">Cargando...</div>
+                <div id="tablaMisCasos" class="text-gray-600 text-sm">Cargando...</div>
             </div>
 
             <div class="w-full max-w-sm xl:max-w-none xl:w-72 xl:flex-shrink-0">
@@ -1137,7 +1145,7 @@ async function mostrarModulo(tipo) {
                         placeholder="Ticket 2WD (opcional)"
                         class="w-full border border-gray-200 bg-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
                     />
-                    <p id="avisoTipo" class="text-xs text-gray-400"></p>
+                    <p id="avisoTipo" class="text-xs text-gray-600"></p>
                     <button
                         onclick="tomarCaso()"
                         id="btnTomarCaso"
@@ -1171,7 +1179,7 @@ async function mostrarModulo(tipo) {
     } else if (tipo === "buscar") {
 
         const inputCls = "border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition";
-        const labelCls = "block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide";
+        const labelCls = "block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide";
 
         contenedor.innerHTML = `
             <div class="fade-in">
@@ -1207,8 +1215,8 @@ async function mostrarModulo(tipo) {
                     </label>
                 </div>
 
-                <p id="bus_info" class="text-xs text-gray-400 mb-3">&nbsp;</p>
-                <div id="tablaBuscar" class="text-gray-400 text-sm">Cargando...</div>
+                <p id="bus_info" class="text-xs text-gray-600 mb-3">&nbsp;</p>
+                <div id="tablaBuscar" class="text-gray-600 text-sm">Cargando...</div>
             </div>
         `;
 
@@ -1223,7 +1231,7 @@ async function mostrarModulo(tipo) {
                     <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
                     <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Últimos 10 casos 3CX</h2>
                 </div>
-                <div id="tablaUlt10" class="text-gray-400 text-sm">Cargando...</div>
+                <div id="tablaUlt10" class="text-gray-600 text-sm">Cargando...</div>
             </div>
         `;
 
@@ -1244,12 +1252,12 @@ async function mostrarModulo(tipo) {
 
                 <div class="flex flex-wrap items-end gap-4 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4">
                     <div>
-                        <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha inicio</label>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha inicio</label>
                         <input type="date" id="met_inicio" value="${desde}"
                             class="border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha fin</label>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha fin</label>
                         <input type="date" id="met_fin" value="${hoy}"
                             class="border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
                     </div>
@@ -1259,13 +1267,13 @@ async function mostrarModulo(tipo) {
                         Consultar
                     </button>
                     <div class="ml-auto text-right">
-                        <div class="text-xs text-gray-400 uppercase tracking-wide font-semibold mb-0.5">Total período</div>
+                        <div class="text-xs text-gray-600 uppercase tracking-wide font-semibold mb-0.5">Total período</div>
                         <div id="met_total" class="text-3xl font-black" style="color:#122B4F">—</div>
                     </div>
                 </div>
 
                 <div class="bg-white border border-gray-200 rounded-2xl p-5">
-                    <div id="met_placeholder" class="text-center py-10 text-gray-400 text-sm">Cargando...</div>
+                    <div id="met_placeholder" class="text-center py-10 text-gray-600 text-sm">Cargando...</div>
                     <div id="met_canvas_wrap" class="hidden" style="position:relative">
                         <canvas id="met_canvas"></canvas>
                     </div>
@@ -1287,71 +1295,71 @@ async function mostrarModulo(tipo) {
                     <div class="space-y-4">
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Caso Atendido *</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Caso Atendido *</label>
                                 <input id="tk_casoAtendido" type="text" placeholder="Ej. Caso 001"
                                     class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Fecha del Caso *</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha del Caso *</label>
                                 <input id="tk_fechaCaso" type="date" value="${new Date().toISOString().split('T')[0]}"
                                     class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">EDS *</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">EDS *</label>
                                 <div class="relative">
                                     <input type="text" id="ds_EDS_text" placeholder="Buscar o seleccionar..." autocomplete="off"
                                         class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                                     <input type="hidden" id="ds_EDS_val"/>
-                                    <svg class="absolute right-3 top-3 pointer-events-none text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+                                    <svg class="absolute right-3 top-3 pointer-events-none text-gray-600" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
                                     <div id="ds_EDS_list" class="absolute z-30 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-44 overflow-y-auto hidden"></div>
                                 </div>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Tipo de Caso *</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Tipo de Caso *</label>
                                 <div class="relative">
                                     <input type="text" id="ds_tipoCaso_text" placeholder="Buscar o seleccionar..." autocomplete="off"
                                         class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                                     <input type="hidden" id="ds_tipoCaso_val"/>
-                                    <svg class="absolute right-3 top-3 pointer-events-none text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+                                    <svg class="absolute right-3 top-3 pointer-events-none text-gray-600" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
                                     <div id="ds_tipoCaso_list" class="absolute z-30 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-44 overflow-y-auto hidden"></div>
                                 </div>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Categoría *</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Categoría *</label>
                                 <div class="relative">
                                     <input type="text" id="ds_categoria_text" placeholder="Buscar o seleccionar..." autocomplete="off"
                                         class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                                     <input type="hidden" id="ds_categoria_val"/>
-                                    <svg class="absolute right-3 top-3 pointer-events-none text-gray-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+                                    <svg class="absolute right-3 top-3 pointer-events-none text-gray-600" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
                                     <div id="ds_categoria_list" class="absolute z-30 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 max-h-44 overflow-y-auto hidden"></div>
                                 </div>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Tiempo Atención (min)</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Tiempo Atención (min)</label>
                                 <input id="tk_tiempoAtencionMin" type="number" min="0" placeholder="Minutos"
                                     class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Versión</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Versión</label>
                                 <input id="tk_versiones" type="text" placeholder="Ej. v2.3.1"
                                     class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"/>
                             </div>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Origen de la Falla</label>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Origen de la Falla</label>
                             <textarea id="tk_origenFalla" rows="2" placeholder="Describe el origen del problema..."
                                 class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition resize-none"></textarea>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Solución</label>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Solución</label>
                             <textarea id="tk_solucion" rows="2" placeholder="Describe la solución aplicada..."
                                 class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition resize-none"></textarea>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Observaciones</label>
+                            <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Observaciones</label>
                             <textarea id="tk_observaciones" rows="2" placeholder="Observaciones adicionales..."
                                 class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition resize-none"></textarea>
                         </div>
@@ -1384,10 +1392,10 @@ async function mostrarModulo(tipo) {
                         </button>
                         <div id="ia_loading" class="hidden text-center py-3">
                             <div class="inline-block w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-2"></div>
-                            <p class="text-xs text-gray-400">Generando respuesta...</p>
+                            <p class="text-xs text-gray-600">Generando respuesta...</p>
                         </div>
                         <div id="ia_resultado" class="hidden space-y-2">
-                            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Respuesta</div>
+                            <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Respuesta</div>
                             <div id="ia_texto" class="text-sm text-gray-700 bg-white rounded-xl border border-gray-200 p-3 max-h-52 overflow-y-auto leading-relaxed whitespace-pre-wrap"></div>
                             <button onclick="copiarIA()" class="w-full py-2 text-gray-600 border border-gray-300 rounded-xl text-xs font-semibold hover:bg-gray-100 transition">
                                 Copiar texto
@@ -1500,7 +1508,7 @@ function crearDropdown(id, opciones, valueKey) {
         const filtradas = opciones.filter(o => o.nombre.toLowerCase().includes(q));
 
         if (!filtradas.length) {
-            listEl.innerHTML = '<div class="px-4 py-3 text-sm text-gray-400 italic">Sin resultados</div>';
+            listEl.innerHTML = '<div class="px-4 py-3 text-sm text-gray-600 italic">Sin resultados</div>';
             return;
         }
 

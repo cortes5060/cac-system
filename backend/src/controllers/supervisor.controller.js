@@ -31,8 +31,7 @@ function addInputs(r, p, f) {
   if (f.idGrupoColaborador)   r.input('fGrp', sql.Int,      f.idGrupoColaborador);
 }
 
-// Una categoría es del tipo "Autoatendido - Datafono / Cambio Datafono". El grupo amplio
-// ("Autoatendido") es lo que va antes del primer " - " dentro de categoriaprincipal.
+// Grupo derivado del prefijo antes de " - " en categoriaprincipal (ej. "Autoatendido - Datafono")
 const SQL_GRUPO_CATEGORIA =
   `LEFT(RTRIM(categoriaprincipal), CHARINDEX(' - ', RTRIM(categoriaprincipal) + ' - ') - 1)`;
 
@@ -150,7 +149,6 @@ const getTicketsPorDia = async (req, res) => {
     const r = mkReq(await pool, p, f);
     const pw = periodoWhere(p), fw = filtroWhere(f);
 
-    // When no month selected → group by month instead of day
     if (p.mes === 0) {
       const result = await r.query(`
         SELECT MONTH(fechaHora) AS periodo, COUNT(*) AS total
@@ -341,7 +339,6 @@ const getMetricasEscalacion = async (req, res) => {
         WHERE ${pw}${fw}
           AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
           AND t.escalado != t.idAnalista`),
-      // Quiénes reciben más escalaciones
       mkReq(db,p,f).query(`
         SELECT TOP 8 a.nombre, COUNT(*) AS total
         FROM tickets t JOIN analistas a ON t.escalado = a.id
@@ -349,7 +346,6 @@ const getMetricasEscalacion = async (req, res) => {
           AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
           AND t.escalado != t.idAnalista
         GROUP BY a.id, a.nombre ORDER BY total DESC`),
-      // Quiénes envían más escalaciones
       mkReq(db,p,f).query(`
         SELECT TOP 8 a.nombre, COUNT(*) AS total
         FROM tickets t JOIN analistas a ON t.idAnalista = a.id
@@ -407,7 +403,7 @@ const getTablaEscaladosActivos = async (req, res) => {
 
 /* ── TIEMPOS DE RESPUESTA (casos 3CX cruzados con tickets 2WD) ─────────── */
 
-// Casos con sus tiempos por estado. El cruce con 2WD es por casos3cx.ticketReferencia2WD = tickets.codigo2wd
+// Cruza casos3cx con tickets de 2WD por ticketReferencia2WD = codigo2wd
 const TIEMPOS_FROM = `
   FROM casos3cx c
   OUTER APPLY (
@@ -455,7 +451,6 @@ const getMetricasTiempos = async (req, res) => {
     const w = tiemposWhere(p, f);
     const db = await pool;
 
-    // Agrupa solo casos finalizados que ya tienen ticket en 2WD (para cortar por dato del ticket)
     const porTicket = (col, alias) => mkReq(db, p, f).query(`
       SELECT TOP 10 ${col} AS nombre, ${TIEMPOS_PROM}
       ${TIEMPOS_FROM}
@@ -507,7 +502,6 @@ const getMetricasTiempos = async (req, res) => {
       porTicket('pr.nombre'),
       porTicket('es.nombre'),
 
-      // Casos sin ticket vinculado (los más recientes primero)
       mkReq(db, p, f).query(`
         SELECT TOP 20
           c.id, c.fecha, c.numerochat, c.tipo, c.nombreEDS, a.nombre AS analista,

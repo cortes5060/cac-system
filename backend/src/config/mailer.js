@@ -1,14 +1,6 @@
 const nodemailer = require('nodemailer');
 
-// MAIL_PROVIDER = 'office365' (por defecto) | 'gmail'
-// - office365: correo @insepet.com sobre Microsoft 365. Requiere que el
-//   administrador de M365 habilite "SMTP AUTH" para esa cuenta (Exchange
-//   admin center > destinatarios > buzón > correo autenticado). MAIL_PASS
-//   es la contraseña normal del buzón, o una contraseña de aplicación si
-//   la cuenta tiene MFA obligatorio.
-// - gmail: cuenta de Gmail. MAIL_PASS es una "contraseña de aplicación"
-//   generada en https://myaccount.google.com/apppasswords (con verificación
-//   en dos pasos activa).
+// Ver .env.example para la configuración de MAIL_PROVIDER/MAIL_USER/MAIL_PASS
 const provider = (process.env.MAIL_PROVIDER || 'office365').toLowerCase();
 
 const transportConfig = provider === 'gmail'

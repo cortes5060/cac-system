@@ -111,13 +111,13 @@
         <!-- Analyst list -->
         <div class="px-6 pt-5 pb-2">
           <div id="listaAnalistas" class="space-y-1.5 overflow-y-auto pr-1" style="max-height:360px">
-            <div class="text-center text-gray-400 py-6 text-sm">Cargando analistas...</div>
+            <div class="text-center text-gray-600 py-6 text-sm">Cargando analistas...</div>
           </div>
         </div>
 
         <!-- Footer -->
         <div class="px-6 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-          <p class="text-xs text-gray-400">© 2026 INSEPET Grupo Empresarial</p>
+          <p class="text-xs text-gray-600">© 2026 INSEPET Grupo Empresarial</p>
           <p class="text-xs text-gray-300 font-medium tracking-wide cursor-pointer hover:text-gray-500 transition" onclick="mostrarModalEsteban()">By Esteban</p>
         </div>
       </div>
@@ -223,7 +223,7 @@
             </div>
             <div>
               <span class="font-semibold text-sm block">${analista.nombre}</span>
-              ${rolLabel ? `<span class="text-xs text-gray-400">${rolLabel}</span>` : ''}
+              ${rolLabel ? `<span class="text-xs text-gray-600">${rolLabel}</span>` : ''}
             </div>
           </div>
           <span class="text-xs font-bold px-2.5 py-1 rounded-full ${
@@ -288,13 +288,13 @@
             <h2 class="text-white text-xl font-bold">${analista.nombre}</h2>
           </div>
           <div class="p-8">
-            <label class="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Contraseña</label>
+            <label class="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Contraseña</label>
             <div class="relative mb-1">
               <input type="password" id="analistaPassword" placeholder="••••••••"
                 class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
                 onkeypress="if(event.key==='Enter') verificarPasswordAnalista(${analista.id})"/>
               <button type="button" onclick="toggleVerPasswordAnalista()"
-                class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition">
+                class="absolute right-3 top-3 text-gray-600 hover:text-gray-600 transition">
                 <svg id="eyeIconAnalista" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                 </svg>
@@ -384,13 +384,13 @@
             <h2 class="text-white text-xl font-bold">${analista.nombre}</h2>
           </div>
           <div class="p-8">
-            <label class="block text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wide">Contraseña</label>
+            <label class="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Contraseña</label>
             <div class="relative mb-1">
               <input type="password" id="coordPassword" placeholder="••••••••"
                 class="w-full border border-gray-200 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
                 onkeypress="if(event.key==='Enter') verificarPasswordCoord(${analista.id})"/>
               <button type="button" onclick="toggleVerPassword()"
-                class="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition">
+                class="absolute right-3 top-3 text-gray-600 hover:text-gray-600 transition">
                 <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                 </svg>
@@ -509,7 +509,7 @@
               </svg>
             </div>
             <p class="text-gray-700 font-semibold mb-1">Panel en construcción</p>
-            <p class="text-gray-400 text-sm mb-6">
+            <p class="text-gray-600 text-sm mb-6">
               El módulo para <strong>${rolNombre}</strong> está próximamente disponible.<br>
               Por ahora solo los analistas pueden ingresar.
             </p>

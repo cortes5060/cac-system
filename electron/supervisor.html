@@ -28,6 +28,10 @@
     .tablas-separadas > :not([hidden]) ~ :not([hidden]) {
       margin-top: 2.75rem;
     }
+    /* Grid de KPIs: siempre simetrico (2/3/6 columnas), sin tarjeta suelta */
+    .kpi-row-6 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0.75rem; }
+    @media (min-width: 768px)  { .kpi-row-6 { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+    @media (min-width: 1280px) { .kpi-row-6 { grid-template-columns: repeat(6, minmax(0,1fr)); } }
     th { font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
     td { font-size: 0.8rem; }
     .badge-tipo { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; }
@@ -325,37 +329,23 @@
       </div>
 
       <!-- ── KPIs (siempre visibles) ──────────────────────────── -->
-      <div class="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-6" id="kpi-row"></div>
+      <div class="kpi-row-6 mb-6" id="kpi-row"></div>
 
       <!-- ═══════════════════════ VISTA: RESUMEN ═══════════════════════ -->
       <div class="view active" data-view="vista-resumen">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-
-          <div class="sec-card lg:col-span-2">
-            <div class="sec-header">
-              <div class="sec-label">
-                <div class="sec-accent" style="background:#C41E3A"></div>
-                <span class="sec-title-text">Requiere tu atención</span>
-              </div>
-            </div>
-            <div class="sec-body p-5" id="resumen-alertas"></div>
-          </div>
-
-          <div class="sec-card">
-            <div class="sec-header">
-              <div class="sec-label">
-                <div class="sec-accent" style="background:#1565C0"></div>
-                <span class="sec-title-text">Tendencia del período</span>
-              </div>
-            </div>
-            <div class="sec-body p-5">
-              <div style="position:relative;height:150px"><canvas id="chart-resumen-tendencia"></canvas></div>
+        <div class="sec-card mb-6">
+          <div class="sec-header">
+            <div class="sec-label">
+              <div class="sec-accent" style="background:#1565C0"></div>
+              <span class="sec-title-text">Tendencia del período</span>
             </div>
           </div>
-
+          <div class="sec-body p-5">
+            <div style="position:relative;height:150px"><canvas id="chart-resumen-tendencia"></canvas></div>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <div class="sec-card">
             <div class="sec-header">
               <div class="sec-label">
@@ -374,6 +364,25 @@
             </div>
             <div class="sec-body p-5" id="resumen-top-eds"></div>
           </div>
+          <div class="sec-card">
+            <div class="sec-header">
+              <div class="sec-label">
+                <div class="sec-accent" style="background:#1B5E20"></div>
+                <span class="sec-title-text">Analistas más activos</span>
+              </div>
+            </div>
+            <div class="sec-body p-5" id="resumen-top-analistas"></div>
+          </div>
+        </div>
+
+        <div class="sec-card">
+          <div class="sec-header">
+            <div class="sec-label">
+              <div class="sec-accent" style="background:#E65100"></div>
+              <span class="sec-title-text">Ticket más antiguo sin cerrar</span>
+            </div>
+          </div>
+          <div class="sec-body p-5" id="resumen-mas-antiguo"></div>
         </div>
       </div>
 
@@ -402,11 +411,6 @@
             </div>
 
             <div>
-              <p class="section-title">Top 10 Tickets de Alta Prioridad Activos</p>
-              <div class="tabla-scroll"><div id="tabla-alta-prioridad"></div></div>
-            </div>
-
-            <div>
               <p class="section-title">Tickets Escalados Activos (Top 20)</p>
               <div class="tabla-scroll"><div id="tabla-escalados-activos"></div></div>
             </div>
@@ -425,15 +429,14 @@
             </div>
           </div>
           <div class="sec-body p-5 tablas-separadas">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div>
-                <p class="section-title">Tickets abiertos por antigüedad</p>
-                <div style="position:relative;height:220px"><canvas id="chart-antiguedad"></canvas></div>
-              </div>
-              <div>
-                <p class="section-title">Top 10 más antiguos sin cerrar</p>
-                <div class="tabla-scroll"><div id="tabla-antiguedad"></div></div>
-              </div>
+            <div>
+              <p class="section-title">Tickets abiertos por antigüedad</p>
+              <div style="position:relative;height:220px"><canvas id="chart-antiguedad"></canvas></div>
+            </div>
+            <div>
+              <p class="section-title">Top 10 más antiguos sin cerrar</p>
+              <div id="antiguedad-por-responsable" class="flex flex-wrap gap-2 mb-4"></div>
+              <div class="tabla-scroll"><div id="tabla-antiguedad"></div></div>
             </div>
           </div>
         </div>
@@ -590,8 +593,8 @@
       { id: 'vista-antiguedad', label: 'Antigüedad',   icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
       { id: 'vista-actividad',  label: 'Actividad',    icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>' },
       { id: 'vista-dist',       label: 'Distribución', icon: '<path d="M21 15.5A9 9 0 1 1 8.5 3 7 7 0 0 0 21 15.5z"/>' },
-      { id: 'vista-tiempos',    label: 'Tiempos',      icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 7 12 12 15.5 14"/>' },
       { id: 'vista-historial',  label: 'Historial',    icon: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/>' },
+      { id: 'vista-tiempos',    label: 'Tiempos 3CX',  icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 7 12 12 15.5 14"/>' },
     ];
     const VISTA_STORAGE_KEY = 'supervisorVistaActiva';
 

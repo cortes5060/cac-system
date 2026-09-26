@@ -596,7 +596,7 @@ async function cargarDashboard() {
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,
-           ultimos, eds, metEsc, altaPrio, escActivos, tiempos, antiguedad] =
+           ultimos, eds, metEsc, escActivos, tiempos, antiguedad] =
       await Promise.all([
         fetch(`${API}/api/supervisor/kpis?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tickets-analista?${qs}`).then(r => r.json()),
@@ -608,13 +608,12 @@ async function cargarDashboard() {
         fetch(`${API}/api/supervisor/ultimos-tickets?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/ranking-eds?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/metricas-escalacion?${qs}`).then(r => r.json()),
-        fetch(`${API}/api/supervisor/top-alta-prioridad?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/escalados-activos?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tiempos-respuesta?${qs}`).then(r => r.json()).catch(() => null),
         fetch(`${API}/api/supervisor/antiguedad-abiertos?${qs}`).then(r => r.json()).catch(() => null),
       ]);
 
-    renderKPIs(kpis);
+    renderKPIs(kpis, tiempos);
     renderChartAnalistas(porAnalista);
     renderChartCategorias(topCat);
     renderChartDias(porDia);
@@ -626,11 +625,10 @@ async function cargarDashboard() {
     renderKPIsEscalacion(metEsc);
     renderChartEscalacion('chart-esc-reciben', metEsc.reciben, '#7C3AED');
     renderChartEscalacion('chart-esc-envian',  metEsc.envian,  '#E65100');
-    renderTablaAltaPrioridad(altaPrio);
     renderTablaEscaladosActivos(escActivos);
     renderTiempos(tiempos);
     renderAntiguedad(antiguedad);
-    renderResumen({ kpis, metEsc, antiguedad, porDia });
+    renderResumen({ kpis, metEsc, antiguedad, porDia, porAnalista });
 
   } catch (e) {
     console.error('Error cargando dashboard:', e);
@@ -658,29 +656,37 @@ const KPI_DEFS = [
   {
     id: 'kpi-escalados', color: '#E65100', bg: '#FFF7ED',
     icon: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
-    label: 'Escalados', sub: 'a cotizaciones / técnico'
+    label: 'Escalados', sub: 'tickets escalados'
   },
   {
     id: 'kpi-analista', color: '#6A1B9A', bg: '#FAF5FF',
     icon: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     label: 'Analista Destacado', sub: 'más tickets del período'
+  },
+  {
+    id: 'kpi-tiempo-resolucion', color: '#00695C', bg: '#ECFDF5',
+    icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    label: 'Tiempo Promedio 3CX', sub: 'de resolución'
   }
 ];
 
-function renderKPIs(d) {
+function renderKPIs(d, tiempos) {
+  const promEjec = tiempos?.kpis?.promEjec;
   const valores = [
     d.totalTickets         ?? 0,
     d.ticketsActivos       ?? 0,
     d.ticketsAltaPrioridad ?? 0,
     d.ticketsEscalados     ?? 0,
     d.analistaTop ? d.analistaTop.nombre : '—',
+    promEjec != null ? fmtSeg(promEjec) : '—',
   ];
   const subs = [
     `${d.totalTickets ?? 0} tickets registrados`,
     `activos en el período`,
     `prioridad alta`,
-    `escalados a cotizaciones / técnico`,
+    `tickets escalados`,
     d.analistaTop ? `${d.analistaTop.total} tickets` : '',
+    'promedio de ejecución',
   ];
 
   const row = document.getElementById('kpi-row');
@@ -973,6 +979,8 @@ function renderAntiguedad(d) {
 
   const lista = d.masAntiguos || [];
 
+  renderResumenPorResponsable(lista);
+
   if (!lista.length) {
     tablaEl.innerHTML = sinDatos();
     return;
@@ -996,6 +1004,28 @@ function renderAntiguedad(d) {
         </tr>`).join('')}
       </tbody>
     </table>`;
+}
+
+// Cuenta cuántos de los tickets más antiguos (ya cargados en la tabla) tiene
+// cada responsable, ordenado de mayor a menor.
+function renderResumenPorResponsable(lista) {
+  const el = document.getElementById('antiguedad-por-responsable');
+  if (!el) return;
+
+  if (!lista.length) { el.innerHTML = ''; return; }
+
+  const conteo = new Map();
+  lista.forEach(t => {
+    const nombre = t.responsable || 'Sin responsable';
+    conteo.set(nombre, (conteo.get(nombre) || 0) + 1);
+  });
+
+  const ordenado = [...conteo.entries()].sort((a, b) => b[1] - a[1]);
+
+  el.innerHTML = ordenado.map(([nombre, total]) => `
+    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold" style="background:#FFF7ED;color:#9A3412">
+      ${escT(nombre)}: ${total}
+    </span>`).join('');
 }
 
 const TIPO_COLORS = {
@@ -1108,28 +1138,6 @@ function renderChartEscalacion(canvasId, data, color) {
     },
     plugins: [noDataPlugin()]
   });
-}
-
-function renderTablaAltaPrioridad(data) {
-  const el = document.getElementById('tabla-alta-prioridad');
-  if (!data?.length) { el.innerHTML = sinDatos(); return; }
-  el.innerHTML = `
-    <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'EDS', 'Creador', 'Responsable', 'Estatus', 'Registro'])}</thead>
-      <tbody class="bg-white divide-y divide-gray-100">
-        ${data.map((t, i) => `
-        <tr class="hover:bg-red-50 transition">
-          <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 whitespace-nowrap">${t.creador}</td>
-          <td class="px-4 py-2.5 whitespace-nowrap ${t.fueEscalado ? 'text-purple-700 font-semibold' : 'text-gray-600'}">${t.escaladoA}${t.fueEscalado ? ' ↑' : ''}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.fechaRegistro}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>`;
 }
 
 function renderTablaEscaladosActivos(data) {
@@ -1326,82 +1334,15 @@ function cerrarSesion() {
 
 /* ── VISTA RESUMEN ──────────────────────────────────────────── */
 
-function renderResumen({ kpis, metEsc, antiguedad, porDia }) {
-  renderResumenAlertas({ kpis, metEsc, antiguedad });
+function renderResumen({ kpis, metEsc, antiguedad, porDia, porAnalista }) {
   renderResumenTopLista('resumen-top-categorias', kpis?.topCategorias, 'nombre', '#6A1B9A');
   renderResumenTopLista('resumen-top-eds', kpis?.topEDS, 'EDS', '#E65100');
+  const topAnalistas = (porAnalista || [])
+    .slice(0, 5)
+    .map(a => ({ nombre: a.nombre, total: a.tickets }));
+  renderResumenTopLista('resumen-top-analistas', topAnalistas, 'nombre', '#1B5E20');
   renderResumenTendencia(porDia);
-}
-
-function renderResumenAlertas({ kpis, metEsc, antiguedad }) {
-  const el = document.getElementById('resumen-alertas');
-  if (!el) return;
-
-  const alertas = [];
-
-  const masAntiguos = antiguedad?.masAntiguos || [];
-  const criticos = masAntiguos.filter(t => t.dias > 7).length;
-  if (criticos > 0) {
-    alertas.push({
-      tipo: 'danger',
-      texto: `${criticos} ticket${criticos === 1 ? '' : 's'} lleva${criticos === 1 ? '' : 'n'} más de 7 días abierto${criticos === 1 ? '' : 's'} sin cerrar.`,
-      accion: () => mostrarVista('vista-antiguedad')
-    });
-  } else if (masAntiguos.length > 0) {
-    alertas.push({
-      tipo: 'warn',
-      texto: `${masAntiguos.length} ticket${masAntiguos.length === 1 ? '' : 's'} sigue${masAntiguos.length === 1 ? '' : 'n'} abierto${masAntiguos.length === 1 ? '' : 's'}, ninguno supera los 7 días.`,
-      accion: () => mostrarVista('vista-antiguedad')
-    });
-  }
-
-  const escActivos = metEsc?.escaladosActivos ?? 0;
-  if (escActivos > 0) {
-    alertas.push({
-      tipo: 'warn',
-      texto: `${escActivos} ticket${escActivos === 1 ? '' : 's'} escalado${escActivos === 1 ? '' : 's'} sigue${escActivos === 1 ? '' : 'n'} sin resolver.`,
-      accion: () => mostrarVista('vista-escalacion')
-    });
-  }
-
-  const altaPrio = kpis?.ticketsAltaPrioridad ?? 0;
-  if (altaPrio > 0) {
-    alertas.push({
-      tipo: 'danger',
-      texto: `${altaPrio} ticket${altaPrio === 1 ? '' : 's'} de alta prioridad en el período.`,
-      accion: () => mostrarVista('vista-escalacion')
-    });
-  }
-
-  if (metEsc?.envian?.[0]) {
-    alertas.push({
-      tipo: 'warn',
-      texto: `${metEsc.envian[0].nombre} es quien más escala tickets (${metEsc.envian[0].total}) — puede valer la pena revisar por qué.`,
-      accion: () => mostrarVista('vista-escalacion')
-    });
-  }
-
-  if (!alertas.length) {
-    alertas.push({ tipo: 'ok', texto: 'Sin alertas relevantes en este período. Todo bajo control.' });
-  }
-
-  const iconos = {
-    ok:     '<circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>',
-    warn:   '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
-    danger: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
-  };
-
-  el.innerHTML = alertas.map(a => `
-    <div class="alerta-item alerta-${a.tipo}" ${a.accion ? 'style="cursor:pointer"' : ''} data-alerta>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" style="flex-shrink:0;margin-top:1px">
-        ${iconos[a.tipo]}
-      </svg>
-      <span>${a.texto}</span>
-    </div>`).join('');
-
-  el.querySelectorAll('[data-alerta]').forEach((div, i) => {
-    if (alertas[i].accion) div.addEventListener('click', alertas[i].accion);
-  });
+  renderResumenMasAntiguo(antiguedad);
 }
 
 function renderResumenTopLista(elId, data, campoNombre, color) {
@@ -1424,6 +1365,36 @@ function renderResumenTopLista(elId, data, campoNombre, color) {
         </div>
       </div>
     </div>`).join('');
+}
+
+function renderResumenMasAntiguo(antiguedad) {
+  const el = document.getElementById('resumen-mas-antiguo');
+  if (!el) return;
+
+  const t = antiguedad?.masAntiguos?.[0];
+  if (!t) { el.innerHTML = sinDatos(); return; }
+
+  const b = antiguedad?.buckets || [];
+  const totalAbiertos = b.reduce((s, x) => s + (x.total || 0), 0);
+  const contexto = totalAbiertos > 1
+    ? `El más antiguo de ${totalAbiertos} tickets abiertos`
+    : 'Único ticket abierto en el período';
+
+  el.innerHTML = `
+    <div class="flex items-center gap-5 cursor-pointer" onclick="mostrarVista('vista-antiguedad')" title="Ver todos en Antigüedad">
+      <div class="flex-shrink-0 text-center px-5 py-3 rounded-2xl" style="background:#FFF7ED">
+        <div class="font-black" style="font-size:2rem;color:#E65100">${t.dias}</div>
+        <div class="text-xs font-bold text-gray-600 uppercase tracking-wide">día${t.dias === 1 ? '' : 's'}</div>
+      </div>
+      <div class="min-w-0">
+        <div class="text-xs font-bold uppercase tracking-wide mb-0.5" style="color:#E65100">${contexto}</div>
+        <div class="font-semibold text-gray-800 truncate" title="${t.casoAtendido || ''}">${t.casoAtendido || '—'}</div>
+        <div class="text-sm text-gray-600 mt-0.5">
+          ${t.codigo2wd ? `Ticket ${t.codigo2wd} · ` : ''}${t.EDS ? `${t.EDS} · ` : ''}${t.responsable || '—'}
+        </div>
+        <div class="text-xs text-gray-600 mt-0.5">Estatus: ${t.estatus || '—'} · ver todos en Antigüedad →</div>
+      </div>
+    </div>`;
 }
 
 function renderResumenTendencia(resp) {

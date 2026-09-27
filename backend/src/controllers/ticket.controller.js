@@ -21,7 +21,7 @@ const crearTicket = async (req, res) => {
       .input('tiempoAtencionMin',sql.Int,      tiempoAtencionMin|| null)
       .input('versiones',        sql.NVarChar, versiones        || null)
       .input('observaciones',    sql.NVarChar, observaciones    || null)
-      .input('fechaCaso',        sql.Date,     fechaCaso        || null)
+      .input('fechaCaso',        sql.DateTime, fechaCaso        || null)
       .query(`
         INSERT INTO tickets
           (casoAtendido, EDS, idTipoCaso, idCategoria, origenFalla, solucion,

@@ -1,4 +1,5 @@
 /* API se carga desde config.js */
+const socket = io(API);
 
 // guard
 const coordId     = localStorage.getItem('coordId');
@@ -8,10 +9,7 @@ if (!coordId) {
     window.location.href = 'index.html';
 }
 
-// El backend guarda la hora local (Bogotá) pero la serializa como si fuera
-// UTC (con "Z"). Si se deja que Date/toLocaleString reconviertan la zona
-// horaria, se resta el offset dos veces y la hora queda mal. Por eso se
-// leen los numeros tal cual vienen en el texto, sin conversion de zona.
+// el backend manda hora local con "Z" como si fuera UTC, así que se parsea el texto tal cual
 function formatearFechaCruda(f) {
     const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
     if (!m) return '—';
@@ -23,8 +21,44 @@ function formatearFechaCruda(f) {
 
 window.addEventListener('load', () => {
     document.getElementById('coordNombre').textContent = coordNombre || '';
-    activarTab('analistas');
+    initSidebar();
+    cargarAlertas();
 });
+
+const VISTAS = [
+    { id: 'analistas',          label: 'Analistas',              icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
+    { id: 'orden',               label: 'Orden de Cola',           icon: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>' },
+    { id: 'horarios',            label: 'Horarios',                icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
+    { id: 'desconexiones',      label: 'Desconexión Supervisada', icon: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>' },
+    { id: 'grupos',              label: 'Grupos de Colaboradores', icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
+    { id: 'buscar',              label: 'Buscar Casos',            icon: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' },
+    { id: 'importar',            label: 'Importar Tickets',        icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' },
+    { id: 'importar-clientes',   label: 'Importar Clientes',       icon: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>' },
+];
+const VISTA_STORAGE_KEY = 'coordinadorVistaActiva';
+
+function initSidebar() {
+    const nav = document.getElementById('sidebar-nav');
+    nav.innerHTML = VISTAS.map(v => `
+        <div class="nav-item" data-target="${v.id}" onclick="activarTab('${v.id}')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">${v.icon}</svg>
+            ${v.label}
+        </div>
+    `).join('');
+
+    let inicial = 'analistas';
+    try {
+        const guardada = localStorage.getItem(VISTA_STORAGE_KEY);
+        if (guardada && VISTAS.some(v => v.id === guardada)) inicial = guardada;
+    } catch (e) {}
+    activarTab(inicial);
+}
+
+function activarTab(tipo) {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.target === tipo));
+    try { localStorage.setItem(VISTA_STORAGE_KEY, tipo); } catch (e) {}
+    mostrarSeccion(tipo);
+}
 
 function cerrarSesion() {
     localStorage.removeItem('coordId');
@@ -32,10 +66,258 @@ function cerrarSesion() {
     window.location.href = 'index.html';
 }
 
+function escapeHtml(v) {
+    return String(v ?? "").replace(/[&<>"']/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[ch]));
+}
+
+/* ============================= */
+/* ALERTAS                       */
+/* ============================= */
+
+const TIPO_ALERTA_META = {
+    CASO_INACTIVO:          { label: 'Caso 3CX sin respuesta', color: '#C41E3A' },
+    DESCONEXION_PENDIENTE:  { label: 'Salida de cola pendiente', color: '#EA580C' },
+    ANALISTA_AUSENTE:       { label: 'Fuera de la cola 3CX',  color: '#7C3AED' },
+    CASOS_ACUMULADOS:       { label: 'Casos 3CX acumulados',  color: '#1565C0' },
+};
+
+let _alertasPanelAbierto = false;
+let _alertasCantidadPrevia = 0;
+
+socket.on('nuevaAlerta', cargarAlertas);
+
+async function cargarAlertas() {
+    try {
+        const alertas = await fetch(`${API}/api/coordinador/alertas`).then(r => r.json());
+        renderAlertasBadge(alertas.length);
+        renderAlertasLista(alertas);
+    } catch (e) {}
+}
+
+function renderAlertasBadge(n) {
+    const badge = document.getElementById('alertasBadge');
+    const dot = document.getElementById('alertasBadgeDot');
+    const btn = document.getElementById('alertasBtn');
+    if (!badge || !dot) return;
+    badge.hidden = n === 0;
+    dot.textContent = n > 99 ? '99+' : String(n);
+    if (n > _alertasCantidadPrevia && btn) {
+        btn.classList.remove('ringing');
+        void btn.offsetWidth;
+        btn.classList.add('ringing');
+    }
+    _alertasCantidadPrevia = n;
+}
+
+function renderAlertasLista(alertas) {
+    const cont = document.getElementById('alertasLista');
+    if (!cont) return;
+    if (!alertas.length) {
+        cont.innerHTML = '<p class="text-sm text-gray-400 text-center py-8">Sin alertas activas</p>';
+        return;
+    }
+    cont.innerHTML = alertas.map(a => {
+        const meta = TIPO_ALERTA_META[a.tipo] || { label: a.tipo, color: '#64748B' };
+        return `
+            <div class="px-5 py-3 border-b border-gray-50 flex items-start gap-3">
+                <div class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style="background:${meta.color}"></div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-[11px] font-bold uppercase tracking-wide" style="color:${meta.color}">${escapeHtml(meta.label)}</p>
+                    <p class="text-sm text-gray-700 leading-snug">${escapeHtml(a.mensaje)}</p>
+                    <p class="text-[11px] text-gray-400 mt-0.5">${formatearFechaCruda(a.creadaEn)}</p>
+                </div>
+                <button onclick="resolverAlertaUI(${a.id})" title="Descartar"
+                    class="text-gray-300 hover:text-gray-500 flex-shrink-0">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>`;
+    }).join('');
+}
+
+async function resolverAlertaUI(id) {
+    try {
+        await fetch(`${API}/api/coordinador/alertas/${id}/resolver`, { method: 'PUT' });
+        cargarAlertas();
+    } catch (e) {}
+}
+
+function toggleAlertasPanel() {
+    _alertasPanelAbierto = !_alertasPanelAbierto;
+    document.getElementById('alertasPanel').hidden = !_alertasPanelAbierto;
+}
+
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('alertasPanel');
+    const btn = document.getElementById('alertasBtn');
+    if (!panel || panel.hidden) return;
+    if (!panel.contains(e.target) && !btn.contains(e.target)) {
+        panel.hidden = true;
+        _alertasPanelAbierto = false;
+    }
+});
+
+/* ============================= */
+/* DESCONEXIÓN SUPERVISADA       */
+/* ============================= */
+
+const ESTADO_DESC = {
+    PENDIENTE:  { bg: '#FFF7ED', text: '#C2410C', label: 'Pendiente' },
+    APROBADA:   { bg: '#ECFDF5', text: '#047857', label: 'Aprobada · trabajando' },
+    RECHAZADA:  { bg: '#FEF2F2', text: '#B91C1C', label: 'Rechazada' },
+    FINALIZADA: { bg: '#EFF6FF', text: '#1D4ED8', label: 'Finalizada' },
+};
+
+socket.on('desconexionSolicitada', () => { if (document.getElementById('desc_tabla')) cargarDesconexiones(); });
+socket.on('desconexionResuelta',   () => { if (document.getElementById('desc_tabla')) cargarDesconexiones(); });
+socket.on('desconexionFinalizada', () => { if (document.getElementById('desc_tabla')) cargarDesconexiones(); });
+
+async function seccionDesconexiones(c) {
+    c.innerHTML = `
+        <div class="fade-in">
+            ${seccionHeader('Desconexión Supervisada', '#EA580C')}
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4 items-end">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Desde</label>
+                    <input id="desc_desde" type="date"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 transition"/>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Hasta</label>
+                    <input id="desc_hasta" type="date"
+                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-200 transition"/>
+                </div>
+                <button onclick="cargarDesconexiones()" style="background:#EA580C;color:#fff"
+                    class="text-sm font-semibold px-4 py-2.5 rounded-xl transition hover:opacity-90">Buscar</button>
+                <button onclick="limpiarFiltroDesconexiones()"
+                    class="text-gray-500 hover:text-gray-700 text-sm font-medium px-2 py-2.5">Limpiar</button>
+            </div>
+            <p id="desc_titulo" class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Últimas 10 solicitudes</p>
+            <div id="desc_tabla"></div>
+        </div>`;
+
+    cargarDesconexiones();
+}
+
+function limpiarFiltroDesconexiones() {
+    document.getElementById('desc_desde').value = '';
+    document.getElementById('desc_hasta').value = '';
+    cargarDesconexiones();
+}
+
+async function cargarDesconexiones() {
+    const desde = document.getElementById('desc_desde')?.value || '';
+    const hasta = document.getElementById('desc_hasta')?.value || '';
+    const div = document.getElementById('desc_tabla');
+    if (!div) return;
+
+    const titulo = document.getElementById('desc_titulo');
+    if (titulo) titulo.textContent = (desde || hasta) ? 'Solicitudes en el rango elegido' : 'Últimas 10 solicitudes';
+
+    let qs = [];
+    if (desde) qs.push(`desde=${desde}`);
+    if (hasta) qs.push(`hasta=${hasta}`);
+
+    try {
+        const r = await fetch(`${API}/api/coordinador/desconexiones?${qs.join('&')}`);
+        const lista = await r.json();
+        renderTablaDesconexiones(lista);
+    } catch (error) {
+        console.error('Error cargando desconexiones:', error);
+        div.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Error cargando datos</div>';
+    }
+}
+
+function renderTablaDesconexiones(lista) {
+    const div = document.getElementById('desc_tabla');
+    if (!div) return;
+
+    if (!lista?.length) {
+        div.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Sin solicitudes en este rango</div>';
+        return;
+    }
+
+    div.innerHTML = `
+        <table class="w-full rounded-xl overflow-hidden border border-gray-100" style="table-layout:fixed">
+            <colgroup>
+                <col style="width:4%"><col style="width:16%"><col style="width:28%">
+                <col style="width:15%"><col style="width:15%"><col style="width:22%">
+            </colgroup>
+            <thead><tr style="background:#122B4F">
+                ${['#', 'Analista', 'Motivo', 'Solicitado', 'Estado', 'Acciones']
+                    .map(x => `<th class="px-4 py-3 text-left text-blue-200 text-xs font-bold uppercase tracking-wide">${x}</th>`).join('')}
+            </tr></thead>
+            <tbody class="bg-white divide-y divide-gray-100">
+                ${lista.map((s, i) => {
+                    const e = ESTADO_DESC[s.estado] || { bg: '#F3F4F6', text: '#4B5563', label: s.estado };
+                    return `
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="px-4 py-2.5 text-gray-600 font-mono">${i + 1}</td>
+                        <td class="px-4 py-2.5 font-medium text-gray-800 truncate">${escapeHtml(s.nombre)}</td>
+                        <td class="px-4 py-2.5 text-gray-600 truncate" title="${escapeHtml(s.motivo)}">${escapeHtml(s.motivo)}</td>
+                        <td class="px-4 py-2.5 text-gray-600 text-xs">${formatearFechaCruda(s.solicitadoEn)}</td>
+                        <td class="px-4 py-2.5">
+                            <span style="background:${e.bg};color:${e.text}" class="text-xs font-semibold px-2.5 py-1 rounded-full">${e.label}</span>
+                        </td>
+                        <td class="px-4 py-2.5">
+                            ${s.estado === 'PENDIENTE' ? `
+                                <div style="display:flex;gap:6px">
+                                    <button onclick="resolverDesconexion(${s.id}, true)"
+                                        style="background:#16A34A;color:#fff" class="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-90 transition">Aprobar</button>
+                                    <button onclick="resolverDesconexion(${s.id}, false)"
+                                        style="background:#DC2626;color:#fff" class="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-90 transition">Rechazar</button>
+                                </div>` : s.estado === 'APROBADA' ? `
+                                <button onclick="finalizarDesconexionCoordinador(${s.id})"
+                                    style="background:#1D4ED8;color:#fff" class="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-90 transition">Finalizar</button>
+                                ` : '<span class="text-gray-400 text-xs">—</span>'}
+                        </td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+}
+
+async function resolverDesconexion(idSolicitud, aprobar) {
+    try {
+        const r = await fetch(`${API}/api/coordinador/desconexiones/${idSolicitud}/resolver`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ aprobar, idCoordinador: Number(coordId) })
+        });
+        if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            mostrarAviso(data.error || 'No se pudo resolver la solicitud');
+            return;
+        }
+        cargarDesconexiones();
+    } catch (error) {
+        console.error('Error resolviendo desconexión supervisada:', error);
+    }
+}
+
+async function finalizarDesconexionCoordinador(idSolicitud) {
+    try {
+        const r = await fetch(`${API}/api/coordinador/desconexiones/${idSolicitud}/finalizar`, { method: 'POST' });
+        if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            mostrarAviso(data.error || 'No se pudo finalizar la desconexión');
+            return;
+        }
+        cargarDesconexiones();
+    } catch (error) {
+        console.error('Error finalizando desconexión supervisada:', error);
+    }
+}
+
 // router
 async function mostrarSeccion(tipo) {
     const c = document.getElementById('tabContenido');
     if (tipo === 'analistas')     await seccionAnalistas(c);
+    else if (tipo === 'grupos')   await seccionGrupos(c);
+    else if (tipo === 'desconexiones') await seccionDesconexiones(c);
     else if (tipo === 'orden')    await seccionOrden(c);
     else if (tipo === 'horarios') await seccionHorarios(c);
     else if (tipo === 'buscar')   await seccionBuscar(c);
@@ -86,6 +368,26 @@ function modalConfirm(titulo, msg, onOk) {
     document.body.appendChild(m);
 }
 
+function mostrarAviso(msg, titulo = 'Aviso') {
+    const m = document.createElement('div');
+    m.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 fade-in';
+    m.innerHTML = `
+        <div class="bg-white rounded-3xl shadow-2xl w-96 mx-4 overflow-hidden">
+            <div class="px-8 py-5" style="background:#122B4F">
+                <h2 class="text-white text-lg font-bold">${escapeHtml(titulo)}</h2>
+            </div>
+            <div class="p-8">
+                <p class="text-gray-600 text-sm mb-6">${escapeHtml(msg)}</p>
+                <button onclick="this.closest('.fixed').remove()"
+                    class="w-full py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition" style="background:#122B4F">
+                    Entendido
+                </button>
+            </div>
+        </div>`;
+    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+    document.body.appendChild(m);
+}
+
 function notif(elId, texto, tipo) {
     const el = document.getElementById(elId);
     if (!el) return;
@@ -103,6 +405,7 @@ async function seccionAnalistas(c) {
         c.innerHTML = `
             <div class="fade-in">
                 ${seccionHeader('Gestión de Analistas', '#1565C0')}
+
                 <div class="overflow-x-auto rounded-xl border border-gray-200">
                     <table class="min-w-full">
                         <thead>
@@ -160,6 +463,139 @@ async function seccionAnalistas(c) {
     } catch { errorHtml(c); }
 }
 
+let _gruposColaborador = [];
+
+async function seccionGrupos(c) {
+    cargando(c);
+    try {
+        const [grupos, analistas] = await Promise.all([
+            fetch(`${API}/api/coordinador/grupos-colaborador`).then(r => r.json()),
+            fetch(`${API}/api/coordinador/analistas-todos`).then(r => r.json()),
+        ]);
+
+        _gruposColaborador = grupos;
+        const porGrupo = {};
+        analistas.forEach(a => {
+            const key = a.idGrupoColaborador || 0;
+            (porGrupo[key] = porGrupo[key] || []).push(a.nombre);
+        });
+
+        const opcionesGrupo = (idActual) => `
+            <option value="">Sin grupo</option>
+            ${grupos.map(g => `<option value="${g.id}" ${g.id === idActual ? 'selected' : ''}>${escapeHtml(g.nombre)}</option>`).join('')}
+        `;
+
+        c.innerHTML = `
+            <div class="fade-in">
+                ${seccionHeader('Grupos de Colaboradores', '#1565C0')}
+
+                <div class="flex flex-wrap items-end gap-3 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Nuevo grupo de colaboradores</label>
+                        <input id="nuevo-grupo-nombre" type="text" placeholder="Ej. Mesa de Ayuda"
+                            class="border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition w-64"
+                            onkeydown="if(event.key==='Enter') crearGrupoColaborador()">
+                    </div>
+                    <button onclick="crearGrupoColaborador()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition">Crear grupo</button>
+                </div>
+
+                <p class="section-title mb-2 text-xs font-bold text-gray-500 uppercase tracking-wide">Resumen por grupo</p>
+                <div class="overflow-x-auto rounded-xl border border-gray-200 mb-6">
+                    <table class="min-w-full">
+                        <thead>
+                            <tr style="background:#122B4F">
+                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Grupo</th>
+                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Analistas en el grupo</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-100">
+                            ${grupos.length ? grupos.map(g => `
+                            <tr class="hover:bg-gray-50 transition text-sm">
+                                <td class="px-5 py-3.5 font-semibold text-gray-800 align-top whitespace-nowrap">${escapeHtml(g.nombre)}</td>
+                                <td class="px-5 py-3.5 text-gray-600">${(porGrupo[g.id] || []).map(n => escapeHtml(n)).join(', ') || '—'}</td>
+                            </tr>`).join('') : `
+                            <tr><td colspan="2" class="px-5 py-8 text-center text-gray-500 text-sm">Todavía no hay grupos registrados</td></tr>`}
+                            ${porGrupo[0]?.length ? `
+                            <tr class="hover:bg-gray-50 transition text-sm">
+                                <td class="px-5 py-3.5 font-semibold text-gray-400 align-top whitespace-nowrap">Sin grupo</td>
+                                <td class="px-5 py-3.5 text-gray-600">${porGrupo[0].map(n => escapeHtml(n)).join(', ')}</td>
+                            </tr>` : ''}
+                        </tbody>
+                    </table>
+                </div>
+
+                <p class="section-title mb-2 text-xs font-bold text-gray-500 uppercase tracking-wide">Asignar grupo por analista</p>
+                <div class="overflow-x-auto rounded-xl border border-gray-200">
+                    <table class="min-w-full">
+                        <thead>
+                            <tr style="background:#122B4F">
+                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Analista</th>
+                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Grupo de colaboradores</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-100">
+                            ${analistas.map(a => `
+                            <tr class="hover:bg-gray-50 transition text-sm">
+                                <td class="px-5 py-3.5 font-semibold text-gray-800">${escapeHtml(a.nombre)}</td>
+                                <td class="px-5 py-3.5">
+                                    <select onchange="cambiarGrupoAnalista(${a.id}, this.value)"
+                                        class="border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-200">
+                                        ${opcionesGrupo(a.idGrupoColaborador)}
+                                    </select>
+                                </td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+    } catch { errorHtml(c); }
+}
+
+async function crearGrupoColaborador() {
+    const input = document.getElementById('nuevo-grupo-nombre');
+    const nombre = input?.value.trim();
+    if (!nombre) { mostrarAviso('Escribe un nombre para el grupo'); return; }
+
+    try {
+        const r = await fetch(`${API}/api/coordinador/grupos-colaborador`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre })
+        });
+        const data = await r.json();
+        if (!r.ok) { mostrarAviso(data.error || 'No se pudo crear el grupo'); return; }
+        activarTab('grupos');
+    } catch (error) {
+        console.error('Error creando grupo de colaboradores:', error);
+        mostrarAviso('Error creando el grupo');
+    }
+}
+
+function recargarSeccionActual() {
+    const activo = document.querySelector('.nav-item.active')?.dataset.target;
+    if (activo) activarTab(activo);
+}
+
+async function cambiarGrupoAnalista(id, idGrupo) {
+    try {
+        const r = await fetch(`${API}/api/coordinador/analistas/${id}/grupo`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idGrupo: idGrupo || null })
+        });
+        if (!r.ok) {
+            const data = await r.json().catch(() => ({}));
+            mostrarAviso(data.error || 'No se pudo asignar el grupo');
+        }
+        recargarSeccionActual();
+    } catch (error) {
+        console.error('Error asignando grupo:', error);
+        mostrarAviso('Error asignando el grupo');
+        recargarSeccionActual();
+    }
+}
+
 async function toggleAnalista(id, nuevoEstado) {
     try {
         const res = await fetch(`${API}/api/coordinador/${id}/estado`, {
@@ -170,7 +606,7 @@ async function toggleAnalista(id, nuevoEstado) {
         if (!res.ok) throw new Error();
         await seccionAnalistas(document.getElementById('tabContenido'));
     } catch {
-        alert('Error al cambiar el estado.');
+        mostrarAviso('Error al cambiar el estado.');
     }
 }
 
@@ -256,7 +692,7 @@ function pedirEliminar(id, nombre) {
         async () => {
             const res = await fetch(`${API}/api/coordinador/${id}`, { method: 'DELETE' });
             if (res.ok) await seccionAnalistas(document.getElementById('tabContenido'));
-            else alert('Error al eliminar.');
+            else mostrarAviso('Error al eliminar.');
         }
     );
 }
@@ -359,9 +795,17 @@ function fmt(val) {
     return String(val).substring(0, 5);
 }
 
-function labelHorario(h) {
-    return `${fmt(h.HoraEntrada)} – ${fmt(h.HoraSalida)}  |  Almuerzo ${fmt(h.HoraAlmuerzoInicio)} – ${fmt(h.HoraAlmuerzoFin)}`;
-}
+const DIAS_SEMANA = [
+    { n: 1, label: 'Lunes',     corto: 'L' },
+    { n: 2, label: 'Martes',    corto: 'M' },
+    { n: 3, label: 'Miércoles', corto: 'X' },
+    { n: 4, label: 'Jueves',    corto: 'J' },
+    { n: 5, label: 'Viernes',   corto: 'V' },
+    { n: 6, label: 'Sábado',    corto: 'S' },
+    { n: 0, label: 'Domingo',   corto: 'D' },
+];
+
+let _horariosCache = [];
 
 async function seccionHorarios(c) {
     cargando(c);
@@ -370,22 +814,35 @@ async function seccionHorarios(c) {
             fetch(`${API}/api/coordinador/analistas-horarios`).then(r => r.json()),
             fetch(`${API}/api/coordinador/horarios`).then(r => r.json())
         ]);
-
-        const opcionesHorario = horarios.map(h =>
-            `<option value="${h.id}">${labelHorario(h)}</option>`
-        ).join('');
+        _horariosCache = horarios;
 
         c.innerHTML = `
             <div class="fade-in">
-                ${seccionHeader('Horarios por Analista', '#1565C0')}
+                ${seccionHeader('Horarios', '#1565C0')}
 
+                <div class="flex items-center justify-between mb-4">
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plantillas de horario</p>
+                    <button onclick="abrirModalHorario()"
+                        class="text-xs font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90 transition btn-navy">
+                        + Nuevo horario
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-9">
+                    ${horarios.length ? horarios.map(h => tarjetaHorario(h)).join('')
+                        : `<div class="col-span-full text-center py-10 text-gray-400 text-sm bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                               Todavía no hay horarios creados
+                           </div>`}
+                </div>
+
+                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Asignación por analista</p>
                 <div class="overflow-x-auto rounded-xl border border-gray-200">
                     <table class="min-w-full">
                         <thead>
                             <tr style="background:#122B4F">
                                 <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Analista</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Horario actual</th>
-                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase w-72">Cambiar a</th>
+                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Hoy</th>
+                                <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase w-64">Horario asignado</th>
                                 <th class="px-5 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Acción</th>
                             </tr>
                         </thead>
@@ -400,23 +857,19 @@ async function seccionHorarios(c) {
                                         <span class="font-semibold text-gray-800">${a.nombre}</span>
                                     </div>
                                 </td>
-                                <td class="px-5 py-3.5">
-                                    ${a.idhorario
-                                        ? `<div class="text-xs text-gray-600 font-medium">
-                                               <span class="font-bold text-gray-800">${fmt(a.HoraEntrada)} – ${fmt(a.HoraSalida)}</span>
-                                               <br>
-                                               <span class="text-gray-600">Almuerzo: ${fmt(a.HoraAlmuerzoInicio)} – ${fmt(a.HoraAlmuerzoFin)}</span>
-                                           </div>`
-                                        : '<span class="text-xs text-gray-600 italic">Sin horario</span>'}
+                                <td class="px-5 py-3.5 text-xs">
+                                    ${a.HoraEntradaHoy
+                                        ? `<span class="font-bold text-gray-800">${fmt(a.HoraEntradaHoy)} – ${fmt(a.HoraSalidaHoy)}</span>`
+                                        : a.idhorario
+                                            ? '<span class="text-gray-400 italic">Libre hoy</span>'
+                                            : '<span class="text-gray-400 italic">Sin horario</span>'}
                                 </td>
                                 <td class="px-5 py-3.5">
                                     <select id="sel-hor-${a.id}"
                                         class="w-full border border-gray-200 bg-gray-50 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition">
-                                        <option value="">— Seleccionar —</option>
+                                        <option value="">— Sin horario —</option>
                                         ${horarios.map(h =>
-                                            `<option value="${h.id}" ${h.id === a.idhorario ? 'selected' : ''}>
-                                                ${labelHorario(h)}
-                                            </option>`
+                                            `<option value="${h.id}" ${h.id === a.idhorario ? 'selected' : ''}>${escapeHtml(h.nombre)}</option>`
                                         ).join('')}
                                     </select>
                                 </td>
@@ -431,21 +884,189 @@ async function seccionHorarios(c) {
                         </tbody>
                     </table>
                 </div>
-
-                <div class="mt-6 bg-gray-50 border border-gray-200 rounded-2xl p-4">
-                    <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Horarios disponibles</p>
-                    <div class="space-y-1.5">
-                        ${horarios.map((h, i) => `
-                        <div class="flex items-center gap-3 text-sm text-gray-600">
-                            <span class="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0" style="background:#1565C0">${i + 1}</span>
-                            <span><strong>${fmt(h.HoraEntrada)} – ${fmt(h.HoraSalida)}</strong>
-                                <span class="text-gray-600 ml-2">Almuerzo: ${fmt(h.HoraAlmuerzoInicio)} – ${fmt(h.HoraAlmuerzoFin)}</span>
-                            </span>
-                        </div>`).join('')}
-                    </div>
-                </div>
             </div>`;
     } catch { errorHtml(c); }
+}
+
+function tarjetaHorario(h) {
+    const porDia = {};
+    (h.detalle || []).forEach(d => { porDia[d.diaSemana] = d; });
+
+    const chips = DIAS_SEMANA.map(dia => {
+        const d = porDia[dia.n];
+        const trabaja = d && d.HoraEntrada;
+        return `
+            <div class="flex-1 flex flex-col items-center gap-1">
+                <span class="w-full h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition"
+                    style="${trabaja ? 'background:#1565C0;color:#fff' : 'background:#F1F5F9;color:#94A3B8'}"
+                    title="${dia.label}${trabaja ? `: ${fmt(d.HoraEntrada)}–${fmt(d.HoraSalida)}` : ': libre'}">
+                    ${dia.corto}
+                </span>
+            </div>`;
+    }).join('');
+
+    return `
+        <div class="border border-gray-200 rounded-2xl p-4 bg-white hover:shadow-md hover:-translate-y-0.5 transition">
+            <div class="flex items-start justify-between mb-3.5">
+                <p class="font-bold text-gray-800 text-sm leading-tight pr-2">${escapeHtml(h.nombre)}</p>
+                <div class="flex gap-1 flex-shrink-0">
+                    <button onclick="abrirModalHorario(${h.id})" title="Editar"
+                        class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-blue-50 hover:text-blue-600 transition">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                    </button>
+                    <button onclick="eliminarHorario(${h.id})" title="Eliminar"
+                        class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="flex gap-1">${chips}</div>
+        </div>`;
+}
+
+function fmtTimeInput(val) {
+    if (!val) return '';
+    return String(val).substring(0, 5);
+}
+
+function abrirModalHorario(id) {
+    const h = id ? _horariosCache.find(x => x.id === id) : null;
+    const porDia = {};
+    (h?.detalle || []).forEach(d => { porDia[d.diaSemana] = d; });
+
+    const m = document.createElement('div');
+    m.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 fade-in p-4';
+    m.innerHTML = `
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div class="px-8 py-5 flex-shrink-0" style="background:linear-gradient(135deg,#0F1E38,#1B3A66)">
+                <h2 class="text-white text-lg font-bold">${h ? 'Editar horario' : 'Nuevo horario'}</h2>
+            </div>
+            <div class="p-8 overflow-y-auto">
+                <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Nombre del horario</label>
+                <input id="hor_nombre" type="text" value="${h ? escapeHtml(h.nombre) : ''}" placeholder="Ej. Turno Mañana"
+                    class="w-full border border-gray-200 bg-gray-50 rounded-xl px-4 py-2.5 text-sm mb-6 focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+
+                <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">Bloques por día</p>
+                <div class="space-y-2">
+                    ${DIAS_SEMANA.map(dia => {
+                        const d = porDia[dia.n];
+                        const libre = !d || !d.HoraEntrada;
+                        return `
+                        <div class="flex flex-wrap items-center gap-2 border border-gray-100 rounded-xl px-3 py-2.5">
+                            <span class="w-20 text-xs font-bold text-gray-700 flex-shrink-0">${dia.label}</span>
+                            <label class="flex items-center gap-1.5 text-xs text-gray-500 flex-shrink-0 cursor-pointer select-none">
+                                <input type="checkbox" id="hor_libre_${dia.n}" ${libre ? 'checked' : ''} onchange="toggleDiaLibre(${dia.n})" class="rounded">
+                                Libre
+                            </label>
+                            <div id="hor_campos_${dia.n}" class="flex flex-wrap gap-1.5 flex-1 ${libre ? 'opacity-40 pointer-events-none' : ''}">
+                                <input type="time" id="hor_entrada_${dia.n}" value="${fmtTimeInput(d?.HoraEntrada)}" title="Entrada"
+                                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs w-[92px] focus:outline-none focus:ring-2 focus:ring-blue-200"/>
+                                <input type="time" id="hor_salida_${dia.n}" value="${fmtTimeInput(d?.HoraSalida)}" title="Salida"
+                                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs w-[92px] focus:outline-none focus:ring-2 focus:ring-blue-200"/>
+                                <input type="time" id="hor_almi_${dia.n}" value="${fmtTimeInput(d?.HoraAlmuerzoInicio)}" title="Almuerzo inicio"
+                                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs w-[92px] focus:outline-none focus:ring-2 focus:ring-blue-200"/>
+                                <input type="time" id="hor_almf_${dia.n}" value="${fmtTimeInput(d?.HoraAlmuerzoFin)}" title="Almuerzo fin"
+                                    class="border border-gray-200 rounded-lg px-2 py-1.5 text-xs w-[92px] focus:outline-none focus:ring-2 focus:ring-blue-200"/>
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>
+                <p id="hor_error" class="text-xs font-medium text-red-500 mt-4 hidden"></p>
+            </div>
+            <div class="px-8 py-5 flex gap-3 border-t border-gray-100 flex-shrink-0">
+                <button onclick="this.closest('.fixed').remove()"
+                    class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-200 transition">
+                    Cancelar
+                </button>
+                <button onclick="guardarPlantillaHorario(${h ? h.id : 'null'})"
+                    class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition btn-navy">
+                    ${h ? 'Guardar cambios' : 'Crear horario'}
+                </button>
+            </div>
+        </div>`;
+    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+    document.body.appendChild(m);
+}
+
+function toggleDiaLibre(dia) {
+    const chk = document.getElementById(`hor_libre_${dia}`);
+    const campos = document.getElementById(`hor_campos_${dia}`);
+    campos.classList.toggle('opacity-40', chk.checked);
+    campos.classList.toggle('pointer-events-none', chk.checked);
+}
+
+async function guardarPlantillaHorario(id) {
+    const nombre = document.getElementById('hor_nombre').value.trim();
+    const errorEl = document.getElementById('hor_error');
+    errorEl.classList.add('hidden');
+
+    if (!nombre) {
+        errorEl.textContent = 'El nombre es obligatorio';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    const detalle = DIAS_SEMANA.map(dia => {
+        const libre = document.getElementById(`hor_libre_${dia.n}`).checked;
+        if (libre) return { diaSemana: dia.n, libre: true };
+        return {
+            diaSemana: dia.n, libre: false,
+            horaEntrada: document.getElementById(`hor_entrada_${dia.n}`).value,
+            horaSalida: document.getElementById(`hor_salida_${dia.n}`).value,
+            horaAlmuerzoInicio: document.getElementById(`hor_almi_${dia.n}`).value || null,
+            horaAlmuerzoFin: document.getElementById(`hor_almf_${dia.n}`).value || null,
+        };
+    });
+
+    const diasConHorario = detalle.filter(d => !d.libre);
+    if (!diasConHorario.length) {
+        errorEl.textContent = 'Debes definir al menos un día trabajado';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    for (const d of diasConHorario) {
+        if (!d.horaEntrada || !d.horaSalida) {
+            errorEl.textContent = 'Completa hora de entrada y salida en los días que no son libres';
+            errorEl.classList.remove('hidden');
+            return;
+        }
+    }
+
+    try {
+        const res = await fetch(`${API}/api/coordinador/horarios${id ? '/' + id : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre, detalle })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            errorEl.textContent = data.error || 'Error al guardar';
+            errorEl.classList.remove('hidden');
+            return;
+        }
+        document.querySelector('.fixed.inset-0')?.remove();
+        activarTab('horarios');
+    } catch (e) {
+        errorEl.textContent = 'Error de conexión';
+        errorEl.classList.remove('hidden');
+    }
+}
+
+async function eliminarHorario(id) {
+    modalConfirm('Eliminar horario', '¿Seguro que quieres eliminar este horario? Esta acción no se puede deshacer.', async () => {
+        try {
+            const res = await fetch(`${API}/api/coordinador/horarios/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) { mostrarAviso(data.error || 'No se pudo eliminar'); return; }
+            activarTab('horarios');
+        } catch (e) { mostrarAviso('Error de conexión'); }
+    });
 }
 
 // BUSCAR CASOS
@@ -814,8 +1435,12 @@ async function confirmarImportacion(incluirAdvertencias) {
         if (!res.ok) throw new Error(data.error || 'Error desconocido');
 
         const partes = [];
-        if (data.edsCreadas      > 0) partes.push(`${data.edsCreadas} EDS creada${data.edsCreadas !== 1 ? 's' : ''}`);
+        if (data.edsCreadas       > 0) partes.push(`${data.edsCreadas} EDS creada${data.edsCreadas !== 1 ? 's' : ''}`);
         if (data.analistasCreados > 0) partes.push(`${data.analistasCreados} analista${data.analistasCreados !== 1 ? 's' : ''} creado${data.analistasCreados !== 1 ? 's' : ''}`);
+        if (data.estatusCreados   > 0) partes.push(`${data.estatusCreados} estatus creado${data.estatusCreados !== 1 ? 's' : ''}`);
+        if (data.categoriasCreadas > 0) partes.push(`${data.categoriasCreadas} categoría${data.categoriasCreadas !== 1 ? 's' : ''} nueva${data.categoriasCreadas !== 1 ? 's' : ''}`);
+        if (data.tiposCreados     > 0) partes.push(`${data.tiposCreados} tipo${data.tiposCreados !== 1 ? 's' : ''} de solicitud nuevo${data.tiposCreados !== 1 ? 's' : ''}`);
+        if (data.gruposCreados    > 0) partes.push(`${data.gruposCreados} grupo${data.gruposCreados !== 1 ? 's' : ''} de colaboradores nuevo${data.gruposCreados !== 1 ? 's' : ''}`);
         if (data.insertados      > 0) partes.push(`${data.insertados} ticket${data.insertados !== 1 ? 's' : ''} insertado${data.insertados !== 1 ? 's' : ''}`);
         if (data.actualizados    > 0) partes.push(`${data.actualizados} actualizado${data.actualizados !== 1 ? 's' : ''}`);
         let texto = partes.length ? `✓ ${partes.join(', ')}.` : '✓ Sin cambios.';
@@ -1088,18 +1713,13 @@ async function confirmarClientes(incluirAdvertencias) {
 async function guardarHorario(analistaId) {
     const sel = document.getElementById(`sel-hor-${analistaId}`);
     const msg = document.getElementById(`msg-hor-${analistaId}`);
-    const idhorario = sel?.value;
-
-    if (!idhorario) {
-        if (msg) { msg.textContent = '⚠ Selecciona un horario'; msg.className = 'block text-xs font-medium mt-1 text-orange-500'; }
-        return;
-    }
+    const idhorario = sel?.value ? parseInt(sel.value) : null;
 
     try {
         const res = await fetch(`${API}/api/coordinador/${analistaId}/horario`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idhorario: parseInt(idhorario) })
+            body: JSON.stringify({ idhorario })
         });
         if (!res.ok) throw new Error();
         if (msg) {

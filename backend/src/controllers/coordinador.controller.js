@@ -38,12 +38,90 @@ const getAnalistas = async (req, res) => {
   try {
     const connection = await pool;
     const result = await connection.request().query(`
-      SELECT id, nombre, orden, activo, existe
-      FROM analistas
-      WHERE idRol = 1 AND existe = 1
-      ORDER BY nombre
+      SELECT a.id, a.nombre, a.orden, a.activo, a.existe,
+        a.idGrupoColaborador, g.nombre AS nombreGrupo,
+        CASE WHEN a.passwordHash IS NOT NULL THEN 1 ELSE 0 END AS tienePassword
+      FROM analistas a
+      LEFT JOIN gruposColaborador g ON g.id = a.idGrupoColaborador
+      WHERE a.idRol = 1 AND a.existe = 1
+      ORDER BY a.nombre
     `);
     res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// incluye también los que el import crea con existe=0, son personas reales igual
+const getTodosLosAnalistas = async (req, res) => {
+  try {
+    const connection = await pool;
+    const result = await connection.request().query(`
+      SELECT a.id, a.nombre, a.activo, a.existe, a.idGrupoColaborador, g.nombre AS nombreGrupo
+      FROM analistas a
+      LEFT JOIN gruposColaborador g ON g.id = a.idGrupoColaborador
+      WHERE a.idRol = 1
+      ORDER BY a.nombre
+    `);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const getGruposColaborador = async (req, res) => {
+  try {
+    const connection = await pool;
+    const result = await connection.request()
+      .query(`SELECT id, nombre FROM gruposColaborador ORDER BY nombre`);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const crearGrupoColaborador = async (req, res) => {
+  try {
+    const nombre = String(req.body?.nombre ?? '').trim();
+    if (!nombre) return res.status(400).json({ error: 'El nombre del grupo es obligatorio' });
+
+    const connection = await pool;
+    const existente = await connection.request()
+      .input('nombre', sql.NVarChar, nombre)
+      .query(`SELECT id FROM gruposColaborador WHERE nombre = @nombre`);
+    if (existente.recordset.length) {
+      return res.status(409).json({ error: 'Ya existe un grupo con ese nombre' });
+    }
+
+    const result = await connection.request()
+      .input('nombre', sql.NVarChar, nombre)
+      .query(`INSERT INTO gruposColaborador (nombre) OUTPUT INSERTED.id VALUES (@nombre)`);
+
+    res.json({ ok: true, id: result.recordset[0].id, nombre });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// asignación manual del coordinador, idGrupo puede venir vacío para quitarlo
+const asignarGrupoAnalista = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const idGrupo = req.body?.idGrupo ? parseInt(req.body.idGrupo) : null;
+
+    const connection = await pool;
+    const result = await connection.request()
+      .input('id', sql.Int, id)
+      .input('idGrupo', sql.Int, idGrupo)
+      .query(`
+        UPDATE analistas SET idGrupoColaborador = @idGrupo
+        WHERE id = @id AND idRol = 1
+      `);
+
+    if (result.rowsAffected[0] === 0) {
+      return res.status(404).json({ error: 'Analista no encontrado' });
+    }
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -114,9 +192,8 @@ const eliminarAnalista = async (req, res) => {
   }
 };
 
-// El coordinador asigna una contraseña nueva a un analista sin necesitar
-// la anterior. Restringido a idRol = 1: la contraseña del propio
-// coordinador nunca se toca desde aqui, solo se modifica directo en BD.
+// el coordinador resetea la clave sin necesitar la anterior; restringido a idRol=1,
+// la clave del coordinador se cambia directo en BD, no desde acá
 const asignarPasswordAnalista = async (req, res) => {
   try {
     const { id } = req.params;
@@ -258,19 +335,27 @@ const toggleEDS = async (req, res) => {
 
 /* ---------- HORARIOS ---------- */
 
+// 0=Domingo, 1=Lunes, ..., 6=Sábado — mismo criterio que Date.getDay() en JS
 const getHorarios = async (_req, res) => {
   try {
-    const result = await (await pool).request().query(`
+    const db = await pool;
+    const horariosR = await db.request().query(`SELECT id, nombre FROM Horarios ORDER BY nombre`);
+    const detalleR = await db.request().query(`
       SELECT
-        id,
+        idHorario, diaSemana,
         CONVERT(VARCHAR(8), HoraEntrada,        108) AS HoraEntrada,
         CONVERT(VARCHAR(8), HoraSalida,          108) AS HoraSalida,
         CONVERT(VARCHAR(8), HoraAlmuerzoInicio,  108) AS HoraAlmuerzoInicio,
         CONVERT(VARCHAR(8), HoraAlmuerzoFin,     108) AS HoraAlmuerzoFin
-      FROM Horarios
-      ORDER BY HoraEntrada
+      FROM HorariosDetalle
     `);
-    res.json(result.recordset);
+    const horarios = horariosR.recordset.map(h => ({
+      ...h,
+      detalle: detalleR.recordset
+        .filter(d => d.idHorario === h.id)
+        .sort((a, b) => a.diaSemana - b.diaSemana),
+    }));
+    res.json(horarios);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -278,19 +363,101 @@ const getHorarios = async (_req, res) => {
 
 const getAnalistasHorarios = async (_req, res) => {
   try {
-    const result = await (await pool).request().query(`
-      SELECT
-        a.id, a.nombre, a.idhorario,
-        CONVERT(VARCHAR(8), h.HoraEntrada,        108) AS HoraEntrada,
-        CONVERT(VARCHAR(8), h.HoraSalida,          108) AS HoraSalida,
-        CONVERT(VARCHAR(8), h.HoraAlmuerzoInicio,  108) AS HoraAlmuerzoInicio,
-        CONVERT(VARCHAR(8), h.HoraAlmuerzoFin,     108) AS HoraAlmuerzoFin
-      FROM analistas a
-      LEFT JOIN Horarios h ON a.idhorario = h.id
-      WHERE a.idRol = 1 AND a.existe = 1
-      ORDER BY a.nombre
-    `);
+    const diaHoy = new Date().getDay();
+    const result = await (await pool).request()
+      .input('dia', sql.Int, diaHoy)
+      .query(`
+        SELECT
+          a.id, a.nombre, a.idhorario, h.nombre AS nombreHorario,
+          CONVERT(VARCHAR(8), d.HoraEntrada,        108) AS HoraEntradaHoy,
+          CONVERT(VARCHAR(8), d.HoraSalida,          108) AS HoraSalidaHoy,
+          CONVERT(VARCHAR(8), d.HoraAlmuerzoInicio,  108) AS HoraAlmuerzoInicioHoy,
+          CONVERT(VARCHAR(8), d.HoraAlmuerzoFin,     108) AS HoraAlmuerzoFinHoy
+        FROM analistas a
+        LEFT JOIN Horarios h ON a.idhorario = h.id
+        LEFT JOIN HorariosDetalle d ON d.idHorario = h.id AND d.diaSemana = @dia
+        WHERE a.idRol = 1 AND a.existe = 1
+        ORDER BY a.nombre
+      `);
     res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+async function insertarDetalleHorario(db, idHorario, detalle) {
+  for (const d of detalle) {
+    if (d.libre) continue;
+    await db.request()
+      .input('idHorario', sql.Int, idHorario)
+      .input('dia', sql.Int, d.diaSemana)
+      .input('he', sql.VarChar(8), d.horaEntrada || null)
+      .input('hs', sql.VarChar(8), d.horaSalida || null)
+      .input('hai', sql.VarChar(8), d.horaAlmuerzoInicio || null)
+      .input('haf', sql.VarChar(8), d.horaAlmuerzoFin || null)
+      .query(`
+        INSERT INTO HorariosDetalle (idHorario, diaSemana, HoraEntrada, HoraSalida, HoraAlmuerzoInicio, HoraAlmuerzoFin)
+        VALUES (@idHorario, @dia, @he, @hs, @hai, @haf)
+      `);
+  }
+}
+
+const crearHorario = async (req, res) => {
+  try {
+    const nombre = String(req.body?.nombre ?? '').trim().slice(0, 60);
+    const { detalle } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    if (!Array.isArray(detalle) || detalle.length !== 7) return res.status(400).json({ error: 'Debes enviar los 7 días de la semana' });
+
+    const db = await pool;
+    const dupR = await db.request().input('n', sql.NVarChar, nombre).query(`SELECT id FROM Horarios WHERE nombre = @n`);
+    if (dupR.recordset.length) return res.status(409).json({ error: 'Ya existe un horario con ese nombre' });
+
+    const insR = await db.request().input('n', sql.NVarChar, nombre)
+      .query(`INSERT INTO Horarios (nombre) OUTPUT INSERTED.id VALUES (@n)`);
+    const idHorario = insR.recordset[0].id;
+
+    await insertarDetalleHorario(db, idHorario, detalle);
+    res.json({ ok: true, id: idHorario });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const actualizarHorario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const nombre = String(req.body?.nombre ?? '').trim().slice(0, 60);
+    const { detalle } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+    if (!Array.isArray(detalle) || detalle.length !== 7) return res.status(400).json({ error: 'Debes enviar los 7 días de la semana' });
+
+    const db = await pool;
+    const dupR = await db.request().input('n', sql.NVarChar, nombre).input('id', sql.Int, id)
+      .query(`SELECT id FROM Horarios WHERE nombre = @n AND id <> @id`);
+    if (dupR.recordset.length) return res.status(409).json({ error: 'Ya existe un horario con ese nombre' });
+
+    await db.request().input('id', sql.Int, id).input('n', sql.NVarChar, nombre)
+      .query(`UPDATE Horarios SET nombre = @n WHERE id = @id`);
+    await db.request().input('id', sql.Int, id).query(`DELETE FROM HorariosDetalle WHERE idHorario = @id`);
+    await insertarDetalleHorario(db, id, detalle);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const eliminarHorario = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await pool;
+    const usoR = await db.request().input('id', sql.Int, id).query(`SELECT COUNT(*) AS n FROM analistas WHERE idhorario = @id`);
+    if (usoR.recordset[0].n > 0) {
+      return res.status(409).json({ error: `Este horario está asignado a ${usoR.recordset[0].n} analista(s). Reasígnalos antes de eliminarlo.` });
+    }
+    await db.request().input('id', sql.Int, id).query(`DELETE FROM HorariosDetalle WHERE idHorario = @id`);
+    await db.request().input('id', sql.Int, id).query(`DELETE FROM Horarios WHERE id = @id`);
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -302,7 +469,7 @@ const asignarHorario = async (req, res) => {
     const { idhorario } = req.body;
     await (await pool).request()
       .input('id',        sql.Int, id)
-      .input('idhorario', sql.Int, idhorario)
+      .input('idhorario', sql.Int, idhorario || null)
       .query(`UPDATE analistas SET idhorario = @idhorario WHERE id = @id`);
     res.json({ ok: true });
   } catch (error) {
@@ -349,11 +516,41 @@ const buscarCasos = async (req, res) => {
   }
 };
 
+/* ---------- ALERTAS ---------- */
+
+const getAlertas = async (_req, res) => {
+  try {
+    const result = await (await pool).request().query(`
+      SELECT id, tipo, idReferencia, mensaje, creadaEn
+      FROM Alertas
+      WHERE resueltaEn IS NULL
+      ORDER BY creadaEn DESC
+    `);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const resolverAlerta = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await (await pool).request()
+      .input('id', sql.Int, id)
+      .query(`UPDATE Alertas SET resueltaEn = GETDATE() WHERE id = @id AND resueltaEn IS NULL`);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   login,
-  getAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden, asignarPasswordAnalista,
+  getAnalistas, getTodosLosAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden, asignarPasswordAnalista,
   getCategorias, crearCategoria, toggleCategoria,
   getEDS, crearEDS, toggleEDS,
-  getHorarios, getAnalistasHorarios, asignarHorario,
+  getHorarios, getAnalistasHorarios, asignarHorario, crearHorario, actualizarHorario, eliminarHorario,
+  getGruposColaborador, crearGrupoColaborador, asignarGrupoAnalista,
+  getAlertas, resolverAlerta,
   buscarCasos
 };

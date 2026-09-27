@@ -35,7 +35,6 @@ function toDate(val) {
   return null;
 }
 
-const fmtDate     = d => d ? d.toISOString().slice(0, 10) : null;
 const fmtDateTime = d => d ? d.toISOString().replace('T', ' ').slice(0, 19) : null;
 
 async function cargarCatalogos(db) {
@@ -108,7 +107,7 @@ const previewExcel = async (req, res) => {
     const existR = await db.request().query(`
       SELECT codigo2wd, casoAtendido, EDS, idAnalista, escalado, idTipoCaso, idCategoria,
              idEstatus, idPrioridad, idGrupoColaborador, origenFalla, observaciones,
-             CONVERT(VARCHAR(10), fechaCaso, 23) AS fechaCaso
+             CONVERT(VARCHAR(19), fechaCaso, 120) AS fechaCaso
       FROM tickets WHERE codigo2wd IS NOT NULL
     `);
     const existingMap = new Map(
@@ -173,7 +172,8 @@ const previewExcel = async (req, res) => {
 
       const malEscalado = !responsableNom && !esCerrado;
 
-      // grupo: excel > responsable > creador
+      // grupo del TICKET (excel > responsable > creador), se crea si no existe.
+      // No afecta al grupo del analista, ese siempre queda en NULL (asignación manual).
       let grupoMatch = buscar(cat.grupos, grupoNom);
       if (!grupoMatch) {
         const fuenteGrupo = escaladoMatch || analistaMatch;
@@ -186,11 +186,19 @@ const previewExcel = async (req, res) => {
       const catMatch       = buscar(cat.categorias, catNom);
       const prioridadMatch = buscar(cat.prioridad,  prioridadNom);
 
+      // Valores que no existen todavia en el catalogo: se crean en confirmarImport
+      const estatusNuevo   = (estatusNom  && !estatusMatch)       ? estatusNom  : null;
+      const categoriaNueva = (catNom      && !catMatch)           ? catNom      : null;
+      const tipoNuevo      = (tipoNom     && !tipoMatch)          ? tipoNom     : null;
+      const grupoNuevo     = (grupoNom    && !grupoMatch)         ? grupoNom    : null;
+
       const errores = [];
       if (clienteNoRegistrado) errores.push(codCliente ? `Cliente "${codCliente}" no registrado — importe clientes primero` : 'Sin cliente — importe clientes primero');
       if (!titulo) errores.push('Sin título (TÍTULO vacío)');
-      if (tipoNom && !tipoMatch) errores.push(`Tipo de solicitud no encontrado: "${tipoNom}"`);
-      if (catNom  && !catMatch)  errores.push(`Categoría no encontrada: "${catNom}"`);
+      if (tipoNuevo)      errores.push(`Tipo de solicitud nuevo: "${tipoNuevo}" (se creará)`);
+      if (categoriaNueva) errores.push(`Categoría nueva: "${categoriaNueva}" (se creará)`);
+      if (estatusNuevo)    errores.push(`Estatus nuevo: "${estatusNuevo}" (se creará)`);
+      if (grupoNuevo)      errores.push(`Grupo de colaboradores nuevo: "${grupoNuevo}" (se creará)`);
 
       const nuevoData = {
         casoAtendido:       titulo   || null,
@@ -204,7 +212,7 @@ const previewExcel = async (req, res) => {
         idGrupoColaborador: grupoMatch?.id      ?? null,
         origenFalla:        origen   || null,
         observaciones:      desc     || null,
-        fechaCaso:          fmtDate(dFin),
+        fechaCaso:          fmtDateTime(dFin),
         fechaHora:          fmtDateTime(dReg),
       };
 
@@ -216,8 +224,8 @@ const previewExcel = async (req, res) => {
 
       if (existente) {
         camposModificados = detectarCambios(existente, nuevoData);
-        if (!camposModificados.length && (creadorNuevo || escaladoNuevo)) {
-          camposModificados = ['Analista (nuevo)'];
+        if (!camposModificados.length && (creadorNuevo || escaladoNuevo || estatusNuevo || categoriaNueva || tipoNuevo || grupoNuevo)) {
+          camposModificados = ['Catálogo (nuevo)'];
         }
         accion = camposModificados.length ? 'actualizar' : 'omitir';
       } else {
@@ -234,6 +242,10 @@ const previewExcel = async (req, res) => {
         creadorNuevo,
         responsableNom,
         escaladoNuevo,
+        estatusNuevo,
+        categoriaNueva,
+        tipoNuevo,
+        grupoNuevo,
         tipoNom,
         catNom,
         estatusNom,
@@ -271,9 +283,99 @@ const confirmarImport = async (req, res) => {
       return res.status(400).json({ error: 'Sin filas para importar' });
 
     const db = await pool;
-    let insertados = 0, actualizados = 0, analistasCreados = 0;
+    let insertados = 0, actualizados = 0;
+    let analistasCreados = 0, estatusCreados = 0, categoriasCreadas = 0, tiposCreados = 0, gruposCreados = 0;
     const errores = [];
 
+    // crea o reutiliza catálogos nuevos del Excel (estatus, categoría, tipo, grupo del ticket)
+    const estatusNuevosSet = new Set();
+    const categoriasNuevasSet = new Set(), tiposNuevosSet = new Set();
+    const gruposNuevosSet = new Set();
+    for (const f of filas) {
+      if (f.accion === 'omitir') continue;
+      if (f.estado === 'advertencia' && !incluirAdvertencias) continue;
+      if (f.estatusNuevo)   estatusNuevosSet.add(f.estatusNuevo);
+      if (f.categoriaNueva) categoriasNuevasSet.add(f.categoriaNueva);
+      if (f.tipoNuevo)      tiposNuevosSet.add(f.tipoNuevo);
+      if (f.grupoNuevo)     gruposNuevosSet.add(f.grupoNuevo);
+    }
+
+    const estatusNuevosMap = new Map();
+    for (const nombre of estatusNuevosSet) {
+      try {
+        const check = await db.request()
+          .input('n', sql.NVarChar, nombre)
+          .query(`SELECT id FROM estatus WHERE nombre = @n`);
+        if (check.recordset.length) {
+          estatusNuevosMap.set(nombre, check.recordset[0].id);
+        } else {
+          const ins = await db.request()
+            .input('n', sql.NVarChar, nombre)
+            .query(`INSERT INTO estatus (nombre) OUTPUT INSERTED.id VALUES (@n)`);
+          estatusNuevosMap.set(nombre, ins.recordset[0].id);
+          estatusCreados++;
+        }
+      } catch (e) { errores.push(`Estatus "${nombre}": ${e.message}`); }
+    }
+
+    const categoriasNuevasMap = new Map();
+    for (const nombre of categoriasNuevasSet) {
+      try {
+        const check = await db.request()
+          .input('n', sql.NVarChar, nombre)
+          .query(`SELECT id FROM categorias WHERE nombre = @n`);
+        if (check.recordset.length) {
+          categoriasNuevasMap.set(nombre, check.recordset[0].id);
+        } else {
+          const principal = nombre.includes(' / ') ? nombre.split(' / ')[0].trim() : nombre;
+          const ins = await db.request()
+            .input('n', sql.NVarChar, nombre)
+            .input('p', sql.NVarChar, principal)
+            .query(`INSERT INTO categorias (nombre, activo, categoriaprincipal)
+                    OUTPUT INSERTED.id VALUES (@n, 1, @p)`);
+          categoriasNuevasMap.set(nombre, ins.recordset[0].id);
+          categoriasCreadas++;
+        }
+      } catch (e) { errores.push(`Categoría "${nombre}": ${e.message}`); }
+    }
+
+    const tiposNuevosMap = new Map();
+    for (const nombre of tiposNuevosSet) {
+      try {
+        const check = await db.request()
+          .input('n', sql.NVarChar, nombre)
+          .query(`SELECT id FROM tiposCaso WHERE nombre = @n`);
+        if (check.recordset.length) {
+          tiposNuevosMap.set(nombre, check.recordset[0].id);
+        } else {
+          const ins = await db.request()
+            .input('n', sql.NVarChar, nombre)
+            .query(`INSERT INTO tiposCaso (nombre, activo) OUTPUT INSERTED.id VALUES (@n, 1)`);
+          tiposNuevosMap.set(nombre, ins.recordset[0].id);
+          tiposCreados++;
+        }
+      } catch (e) { errores.push(`Tipo de solicitud "${nombre}": ${e.message}`); }
+    }
+
+    const gruposNuevosMap = new Map();
+    for (const nombre of gruposNuevosSet) {
+      try {
+        const check = await db.request()
+          .input('n', sql.NVarChar, nombre)
+          .query(`SELECT id FROM gruposColaborador WHERE nombre = @n`);
+        if (check.recordset.length) {
+          gruposNuevosMap.set(nombre, check.recordset[0].id);
+        } else {
+          const ins = await db.request()
+            .input('n', sql.NVarChar, nombre)
+            .query(`INSERT INTO gruposColaborador (nombre) OUTPUT INSERTED.id VALUES (@n)`);
+          gruposNuevosMap.set(nombre, ins.recordset[0].id);
+          gruposCreados++;
+        }
+      } catch (e) { errores.push(`Grupo de colaboradores "${nombre}": ${e.message}`); }
+    }
+
+    // analistas nuevos se crean sin grupo, esa asignación siempre es manual
     const analNuevosMap = new Map();
 
     const nombresNuevos = new Set();
@@ -304,7 +406,6 @@ const confirmarImport = async (req, res) => {
       }
     }
 
-
     for (const f of filas) {
       if (f.accion === 'omitir') continue;
       if (f.estado === 'error') continue;
@@ -312,14 +413,19 @@ const confirmarImport = async (req, res) => {
 
       try {
         if (f.accion === 'insertar') {
+          const idCategoria        = f.idCategoria        ?? (f.categoriaNueva ? categoriasNuevasMap.get(f.categoriaNueva) : null) ?? null;
+          const idTipoCaso         = f.idTipoCaso         ?? (f.tipoNuevo      ? tiposNuevosMap.get(f.tipoNuevo)           : null) ?? null;
+          const idEstatus          = f.idEstatus          ?? (f.estatusNuevo   ? estatusNuevosMap.get(f.estatusNuevo)      : null) ?? null;
+          const idGrupoColaborador = f.idGrupoColaborador ?? (f.grupoNuevo     ? gruposNuevosMap.get(f.grupoNuevo)         : null) ?? null;
+
           const idAna     = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
-          const esCerrado = [1, 2].includes(f.idEstatus);
+          const esCerrado = [1, 2].includes(idEstatus);
           const idEsc     = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? (esCerrado ? idAna : null);
           await db.request()
             .input('casoAtendido',        sql.NVarChar, f.casoAtendido       || null)
             .input('EDS',                 sql.NVarChar, f.eds                || null)
-            .input('idTipoCaso',          sql.Int,      f.idTipoCaso         || null)
-            .input('idCategoria',         sql.Int,      f.idCategoria        || null)
+            .input('idTipoCaso',          sql.Int,      idTipoCaso)
+            .input('idCategoria',         sql.Int,      idCategoria)
             .input('origenFalla',         sql.NVarChar, f.origenFalla        || null)
             .input('solucion',            sql.NVarChar, null)
             .input('idAnalista',          sql.Int,      idAna)
@@ -327,12 +433,12 @@ const confirmarImport = async (req, res) => {
             .input('tiempoAtencionMin',   sql.Int,      null)
             .input('versiones',           sql.NVarChar, null)
             .input('observaciones',       sql.NVarChar, f.observaciones      || null)
-            .input('fechaCaso',           sql.Date,     f.fechaCaso  ? new Date(f.fechaCaso)  : null)
+            .input('fechaCaso',           sql.DateTime, f.fechaCaso  ? new Date(f.fechaCaso)  : null)
             .input('fechaHora',           sql.DateTime, f.fechaHora  ? new Date(f.fechaHora)  : new Date())
             .input('codigo2wd',           sql.NVarChar, f.codigo2wd          || null)
-            .input('idEstatus',           sql.Int,      f.idEstatus          || null)
+            .input('idEstatus',           sql.Int,      idEstatus)
             .input('idPrioridad',         sql.Int,      f.idPrioridad        || null)
-            .input('idGrupoColaborador',  sql.Int,      f.idGrupoColaborador || null)
+            .input('idGrupoColaborador',  sql.Int,      idGrupoColaborador)
             .query(`
               INSERT INTO tickets (
                 casoAtendido, EDS, idTipoCaso, idCategoria, origenFalla, solucion,
@@ -349,25 +455,30 @@ const confirmarImport = async (req, res) => {
           insertados++;
 
         } else if (f.accion === 'actualizar' && f.codigo2wd) {
+          const idCategoria        = f.idCategoria        ?? (f.categoriaNueva ? categoriasNuevasMap.get(f.categoriaNueva) : null) ?? null;
+          const idTipoCaso         = f.idTipoCaso         ?? (f.tipoNuevo      ? tiposNuevosMap.get(f.tipoNuevo)           : null) ?? null;
+          const idEstatus          = f.idEstatus          ?? (f.estatusNuevo   ? estatusNuevosMap.get(f.estatusNuevo)      : null) ?? null;
+          const idGrupoColaborador = f.idGrupoColaborador ?? (f.grupoNuevo     ? gruposNuevosMap.get(f.grupoNuevo)         : null) ?? null;
+
           const idAna     = f.idAnalista ?? (f.creadorNuevo  ? analNuevosMap.get(f.creadorNuevo)  : null) ?? null;
-          const esCerrado = [1, 2].includes(f.idEstatus);
+          const esCerrado = [1, 2].includes(idEstatus);
           const idEsc     = f.escalado   ?? (f.escaladoNuevo ? analNuevosMap.get(f.escaladoNuevo) : null) ?? (esCerrado ? idAna : null);
           const sets = [];
           const r = db.request().input('codigo', sql.NVarChar, f.codigo2wd);
 
           if (f.casoAtendido)       { sets.push('casoAtendido = @casoAtendido');             r.input('casoAtendido',       sql.NVarChar, f.casoAtendido); }
           if (f.eds)                { sets.push('EDS = @EDS');                               r.input('EDS',                sql.NVarChar, f.eds); }
-          if (f.idTipoCaso)         { sets.push('idTipoCaso = @idTipoCaso');                 r.input('idTipoCaso',         sql.Int,      f.idTipoCaso); }
-          if (f.idCategoria)        { sets.push('idCategoria = @idCategoria');               r.input('idCategoria',        sql.Int,      f.idCategoria); }
+          if (idTipoCaso)           { sets.push('idTipoCaso = @idTipoCaso');                 r.input('idTipoCaso',         sql.Int,      idTipoCaso); }
+          if (idCategoria)          { sets.push('idCategoria = @idCategoria');               r.input('idCategoria',        sql.Int,      idCategoria); }
           if (f.origenFalla)        { sets.push('origenFalla = @origenFalla');               r.input('origenFalla',        sql.NVarChar, f.origenFalla); }
           if (idAna)                { sets.push('idAnalista = @idAnalista');                 r.input('idAnalista',         sql.Int,      idAna); }
           if (idEsc)                { sets.push('escalado = @escalado');                     r.input('escalado',           sql.Int,      idEsc); }
           if (f.observaciones)      { sets.push('observaciones = @observaciones');           r.input('observaciones',      sql.NVarChar, f.observaciones); }
-          if (f.fechaCaso)          { sets.push('fechaCaso = @fechaCaso');                   r.input('fechaCaso',          sql.Date,     new Date(f.fechaCaso)); }
+          if (f.fechaCaso)          { sets.push('fechaCaso = @fechaCaso');                   r.input('fechaCaso',          sql.DateTime, new Date(f.fechaCaso)); }
           if (f.fechaHora)          { sets.push('fechaHora = @fechaHora');                   r.input('fechaHora',          sql.DateTime, new Date(f.fechaHora)); }
-          if (f.idEstatus)          { sets.push('idEstatus = @idEstatus');                   r.input('idEstatus',          sql.Int,      f.idEstatus); }
+          if (idEstatus)            { sets.push('idEstatus = @idEstatus');                   r.input('idEstatus',          sql.Int,      idEstatus); }
           if (f.idPrioridad)        { sets.push('idPrioridad = @idPrioridad');               r.input('idPrioridad',        sql.Int,      f.idPrioridad); }
-          if (f.idGrupoColaborador) { sets.push('idGrupoColaborador = @idGrupoColaborador'); r.input('idGrupoColaborador', sql.Int,      f.idGrupoColaborador); }
+          if (idGrupoColaborador)   { sets.push('idGrupoColaborador = @idGrupoColaborador'); r.input('idGrupoColaborador', sql.Int,      idGrupoColaborador); }
 
           if (sets.length > 0) {
             await r.query(`UPDATE tickets SET ${sets.join(', ')} WHERE codigo2wd = @codigo`);
@@ -382,7 +493,11 @@ const confirmarImport = async (req, res) => {
     const io = req.app.get('io');
     io.emit('ticketsActualizados');
 
-    res.json({ ok: true, insertados, actualizados, analistasCreados, errores });
+    res.json({
+      ok: true, insertados, actualizados, analistasCreados,
+      estatusCreados, categoriasCreadas, tiposCreados, gruposCreados,
+      errores,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

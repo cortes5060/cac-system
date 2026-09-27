@@ -11,13 +11,13 @@ const analistasRoutes = require('./routes/analistas.routes');
 const casosRoutes = require('./routes/casos.routes');
 const analistaRoutes = require('./routes/analista.routes');
 const ticketRoutes = require('./routes/ticket.routes');
-const iaRoutes = require('./routes/ia.routes');
 const catalogosRoutes = require('./routes/catalogos.routes');
 const metricasRoutes    = require('./routes/metricas.routes');
 const coordinadorRoutes = require('./routes/coordinador.routes');
 const supervisorRoutes  = require('./routes/supervisor.routes');
 const importRoutes           = require('./routes/import.routes');
 const importEstacionesRoutes = require('./routes/import-estaciones.routes');
+const { registrarJuegos } = require('./sockets/juegos');
 
 const app = express();
 const server = http.createServer(app);
@@ -47,7 +47,6 @@ app.use('/api/analistas', analistasRoutes);
 app.use('/api/casos', casosRoutes);
 app.use('/api/analista', analistaRoutes);
 app.use('/api/tickets', ticketRoutes);
-app.use('/api/ia', iaRoutes);
 app.use('/api/catalogos', catalogosRoutes);
 app.use('/api/metricas',      metricasRoutes);
 app.use('/api/coordinador',  coordinadorRoutes);
@@ -59,6 +58,7 @@ app.set("io", io);
 
 io.on("connection", (socket) => {
   console.log("Cliente conectado:", socket.id);
+  registrarJuegos(io, socket);
 });
 
 const PORT = process.env.PORT || 3000;
@@ -68,3 +68,6 @@ server.listen(PORT, () => {
 
 // Finaliza solo los casos que llevan más de 12 h abiertos
 require('./jobs/autofinalizar').iniciarAutoFinalizacion(io);
+
+// Revisa periódicamente condiciones que ameritan alertar al coordinador
+require('./jobs/alertas').iniciarAlertas(io);

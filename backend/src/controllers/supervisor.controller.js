@@ -70,7 +70,7 @@ const getKPIs = async (req, res) => {
     const fw  = filtroWhere(f);
     const fwt = filtroWhere(f, 't');
 
-    const [totalR, activosR, altaPrioR, escalaR, topCatR, topEdsR, topAnaR] = await Promise.all([
+    const [totalR, activosR, altaPrioR, escalaR, topCatR, topEdsR, topAnaR, promResolR] = await Promise.all([
       mkReq(db,p,f).query(`SELECT COUNT(*) AS total FROM tickets WHERE ${pw}${fw}`),
       mkReq(db,p,f).query(`
         SELECT COUNT(*) AS total FROM tickets t LEFT JOIN estatus e ON t.idEstatus = e.id
@@ -85,18 +85,55 @@ const getKPIs = async (req, res) => {
         WHERE ${pw}${fw}
           AND e.nombre IN ('Escalado a cotizaciones','Escalado Servicio Técnico')`),
       mkReq(db,p,f).query(`
-        SELECT TOP 5 c.nombre, COUNT(t.id) AS total
+        SELECT TOP 10 c.nombre, COUNT(t.id) AS total
         FROM tickets t JOIN categorias c ON t.idCategoria = c.id
         WHERE ${pwt}${fwt} GROUP BY c.id,c.nombre ORDER BY total DESC`),
       mkReq(db,p,f).query(`
-        SELECT TOP 5 EDS, COUNT(*) AS total FROM tickets
+        SELECT TOP 10 EDS, COUNT(*) AS total FROM tickets
         WHERE ${pw} AND EDS IS NOT NULL AND EDS!=''${fw}
         GROUP BY EDS ORDER BY total DESC`),
       mkReq(db,p,f).query(`
         SELECT TOP 1 a.nombre, COUNT(t.id) AS total
         FROM analistas a JOIN tickets t ON a.id=t.escalado
         WHERE ${pwt}${fwt} GROUP BY a.id,a.nombre ORDER BY total DESC`),
+      mkReq(db,p,f).query(`
+        SELECT AVG(CAST(DATEDIFF(MINUTE, t.fechaHora, t.fechaCaso) AS FLOAT)) AS promMinutos
+        FROM tickets t
+        WHERE t.fechaCaso IS NOT NULL AND ${pw}${fw}`),
     ]);
+
+    // Comparativo con el mes anterior (solo tiene sentido cuando se eligió un mes puntual)
+    let comparativoMesAnterior = null;
+    if (p.mes > 0) {
+      const prevMes  = p.mes === 1 ? 12 : p.mes - 1;
+      const prevAnio = p.mes === 1 ? p.anio - 1 : p.anio;
+      const p2  = { mes: prevMes, anio: prevAnio };
+      const pw2 = periodoWhere(p2);
+
+      const [totalPrevR, activosPrevR, altaPrioPrevR, escalaPrevR] = await Promise.all([
+        mkReq(db,p2,f).query(`SELECT COUNT(*) AS total FROM tickets WHERE ${pw2}${fw}`),
+        mkReq(db,p2,f).query(`
+          SELECT COUNT(*) AS total FROM tickets t LEFT JOIN estatus e ON t.idEstatus = e.id
+          WHERE ${pw2}${fw}
+            AND e.nombre IN ('En curso','Esperando cliente','Servicio programado',
+                            'Servicio Técnico En Curso','En Pausa','Nuevo')`),
+        mkReq(db,p2,f).query(`
+          SELECT COUNT(*) AS total FROM tickets t LEFT JOIN prioridad pr ON t.idPrioridad = pr.id
+          WHERE ${pw2}${fw} AND pr.nombre = 'Alta'`),
+        mkReq(db,p2,f).query(`
+          SELECT COUNT(*) AS total FROM tickets t LEFT JOIN estatus e ON t.idEstatus = e.id
+          WHERE ${pw2}${fw}
+            AND e.nombre IN ('Escalado a cotizaciones','Escalado Servicio Técnico')`),
+      ]);
+
+      comparativoMesAnterior = {
+        mes: prevMes, anio: prevAnio,
+        totalTickets:         totalPrevR.recordset[0].total,
+        ticketsActivos:       activosPrevR.recordset[0].total,
+        ticketsAltaPrioridad: altaPrioPrevR.recordset[0].total,
+        ticketsEscalados:     escalaPrevR.recordset[0].total,
+      };
+    }
 
     res.json({
       totalTickets:         totalR.recordset[0].total,
@@ -106,6 +143,8 @@ const getKPIs = async (req, res) => {
       topCategorias:        topCatR.recordset,
       topEDS:               topEdsR.recordset,
       analistaTop:          topAnaR.recordset[0] || null,
+      promResolucion2WD:    promResolR.recordset[0].promMinutos,
+      comparativoMesAnterior,
     });
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -214,7 +253,7 @@ const getAntiguedadAbiertos = async (req, res) => {
         WHERE ${pw}${fw} AND ${abiertoWhere}`),
 
       mkReq(db, p, f).query(`
-        SELECT TOP 10
+        SELECT
           t.id, t.codigo2wd, t.casoAtendido, t.EDS,
           ISNULL(a.nombre, '—') AS responsable,
           ISNULL(e.nombre, 'Sin estatus') AS estatus,
@@ -246,8 +285,30 @@ const getUltimosTickets = async (req, res) => {
   try {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
+
+    const q          = String(req.query.q ?? '').trim().slice(0, 100);
+    const desde      = /^\d{4}-\d{2}-\d{2}$/.test(req.query.desde ?? '') ? req.query.desde : null;
+    const hasta      = /^\d{4}-\d{2}-\d{2}$/.test(req.query.hasta ?? '') ? req.query.hasta : null;
+    const estatus    = String(req.query.estatus ?? '').trim();
+    const idTipoCaso = req.query.idTipoCaso ? parseInt(req.query.idTipoCaso) : null;
+
+    let where = `${periodoWhere(p,'t')}${filtroWhere(f,'t')}`;
+
+    if (q) {
+      const like = '%' + q.replace(/[%_\[]/g, m => '[' + m + ']') + '%';
+      r.input('qLike', sql.NVarChar(110), like);
+      where += ' AND (t.codigo2wd LIKE @qLike OR t.casoAtendido LIKE @qLike)';
+    }
+    if (desde) { r.input('desdeReg', sql.Date, desde); where += ' AND CAST(t.fechaHora AS DATE) >= @desdeReg'; }
+    if (hasta) { r.input('hastaReg', sql.Date, hasta); where += ' AND CAST(t.fechaHora AS DATE) <= @hastaReg'; }
+    if (estatus)    { r.input('fEstatusHist', sql.NVarChar(100), estatus); where += ' AND e.nombre = @fEstatusHist'; }
+    if (idTipoCaso) { r.input('fTipoCasoHist', sql.Int, idTipoCaso); where += ' AND t.idTipoCaso = @fTipoCasoHist'; }
+
+    const hayFiltro = !!(q || desde || hasta || estatus || idTipoCaso);
+    const top = hayFiltro ? 'TOP 200' : 'TOP 10';
+
     const result = await r.query(`
-      SELECT TOP 10
+      SELECT ${top}
         t.id, t.codigo2wd, t.casoAtendido,
         ISNULL(a.nombre,  '—') AS analista,
         t.EDS,
@@ -262,10 +323,10 @@ const getUltimosTickets = async (req, res) => {
       LEFT JOIN tiposCaso tc ON t.idTipoCaso  = tc.id
       LEFT JOIN estatus   e  ON t.idEstatus   = e.id
       LEFT JOIN prioridad pr ON t.idPrioridad = pr.id
-      WHERE ${periodoWhere(p,'t')}${filtroWhere(f,'t')}
+      WHERE ${where}
       ORDER BY t.fechaHora DESC
     `);
-    res.json(result.recordset);
+    res.json({ tickets: result.recordset, filtrado: hayFiltro });
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
@@ -332,7 +393,7 @@ const getMetricasEscalacion = async (req, res) => {
     const pw = periodoWhere(p,'t'), fw = filtroWhere(f,'t');
     const db = await pool;
 
-    const [totalEscR, recibR, enviR, activosEscR] = await Promise.all([
+    const [totalEscR, recibR, enviR, activosEscR, totalTicketsR, porDiaEscR] = await Promise.all([
       // Total escalados (creador != responsable)
       mkReq(db,p,f).query(`
         SELECT COUNT(*) AS total FROM tickets t
@@ -361,13 +422,35 @@ const getMetricasEscalacion = async (req, res) => {
           AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
           AND t.escalado != t.idAnalista
           AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))`),
+      // Total de tickets del período (para calcular el % de escalados)
+      mkReq(db,p,f).query(`SELECT COUNT(*) AS total FROM tickets t WHERE ${pw}${fw}`),
+      // Tendencia diaria: % de tickets escalados sobre el total, por día
+      mkReq(db,p,f).query(`
+        SELECT CAST(t.fechaHora AS DATE) AS fecha,
+          COUNT(*) AS total,
+          SUM(CASE WHEN t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
+                        AND t.escalado != t.idAnalista THEN 1 ELSE 0 END) AS escalados
+        FROM tickets t
+        WHERE ${pw}${fw}
+        GROUP BY CAST(t.fechaHora AS DATE)
+        ORDER BY fecha`),
     ]);
 
+    const totalTickets = totalTicketsR.recordset[0].total;
+    const totalEscalados = totalEscR.recordset[0].total;
+
     res.json({
-      totalEscalados:  totalEscR.recordset[0].total,
-      escaladosActivos: activosEscR.recordset[0].total,
-      reciben:         recibR.recordset,
-      envian:          enviR.recordset,
+      totalEscalados,
+      escaladosActivos:    activosEscR.recordset[0].total,
+      reciben:             recibR.recordset,
+      envian:              enviR.recordset,
+      porcentajeEscalados: totalTickets > 0 ? (totalEscalados / totalTickets) * 100 : 0,
+      porDia: porDiaEscR.recordset.map(r => ({
+        fecha:      r.fecha,
+        total:      r.total,
+        escalados:  r.escalados,
+        porcentaje: r.total > 0 ? (r.escalados / r.total) * 100 : 0,
+      })),
     });
   } catch (error) { res.status(500).json({ error: error.message }); }
 };
@@ -377,7 +460,7 @@ const getTablaEscaladosActivos = async (req, res) => {
     const p = periodo(req), f = filtros(req);
     const r = mkReq(await pool, p, f);
     const result = await r.query(`
-      SELECT TOP 20
+      SELECT
         t.id, t.codigo2wd, t.casoAtendido, t.EDS,
         ISNULL(cr.nombre, '—') AS creador,
         ISNULL(es.nombre, '—') AS escaladoA,
@@ -395,7 +478,7 @@ const getTablaEscaladosActivos = async (req, res) => {
         AND t.escalado IS NOT NULL AND t.idAnalista IS NOT NULL
         AND t.escalado != t.idAnalista
         AND (e.nombre IS NULL OR e.nombre NOT IN ('Cerrado','Cancelado'))
-      ORDER BY pr.nombre ASC, t.fechaHora DESC
+      ORDER BY t.fechaHora ASC
     `);
     res.json(result.recordset);
   } catch (error) { res.status(500).json({ error: error.message }); }
@@ -433,32 +516,60 @@ const TIEMPOS_PROM = `
   AVG(CASE WHEN s.finalizado = 1 THEN CAST(s.segIna AS FLOAT) END)            AS promSinResp
 `;
 
-function tiemposWhere(p, f) {
-  let w = 'YEAR(c.fecha) = @anio';
-  if (p.mes > 0)             w += ' AND MONTH(c.fecha) = @mes';
+function tiemposFiltrosExtra(f) {
+  let w = '';
   if (f.idAnalista)          w += ` AND (c.idAnalista = @fAna OR EXISTS (SELECT 1 FROM casos3cx_traspasos x
                                    WHERE x.idCaso = c.id AND (x.deAnalista = @fAna OR x.aAnalista = @fAna)))`;
   if (f.eds)                 w += ' AND COALESCE(t.EDS, c.nombreEDS) = @fEDS';
   if (f.idCategoria)         w += ' AND t.idCategoria = @fCat';
   if (f.grupoCategoria)      w += ` AND t.idCategoria IN (SELECT id FROM categorias WHERE ${SQL_GRUPO_CATEGORIA} = @fGrupoCat)`;
-  if (f.idGrupoColaborador)  w += ' AND t.idGrupoColaborador = @fGrp';
+  // filtra por grupo del analista, no del ticket: muchos casos 3CX no tienen ticket vinculado
+  if (f.idGrupoColaborador)  w += ' AND a.idGrupoColaborador = @fGrp';
   return w;
+}
+
+function tiemposWhere(p, f, rango) {
+  let w;
+  if (rango) {
+    w = 'CAST(c.fecha AS DATE) BETWEEN @fDesde AND @fHasta';
+  } else {
+    w = 'YEAR(c.fecha) = @anio';
+    if (p.mes > 0) w += ' AND MONTH(c.fecha) = @mes';
+  }
+  return w + tiemposFiltrosExtra(f);
 }
 
 const getMetricasTiempos = async (req, res) => {
   try {
     const p = periodo(req), f = filtros(req);
-    const w = tiemposWhere(p, f);
+
+    const parseFecha = v => /^\d{4}-\d{2}-\d{2}$/.test(v ?? '') ? v : null;
+    let desde = parseFecha(req.query.desde);
+    let hasta = parseFecha(req.query.hasta);
+    if (desde && !hasta) hasta = desde;
+    if (hasta && !desde) desde = hasta;
+    const rango = (desde && hasta) ? { desde, hasta } : null;
+
+    const w = tiemposWhere(p, f, rango);
     const db = await pool;
 
-    const porTicket = (col, alias) => mkReq(db, p, f).query(`
+    const nuevoReq = () => {
+      const rq = mkReq(db, p, f);
+      if (rango) { rq.input('fDesde', sql.Date, rango.desde); rq.input('fHasta', sql.Date, rango.hasta); }
+      return rq;
+    };
+
+    // "Casos sin ticket" no sigue el mes/año de arriba: usa el rango si hay, si no el día de hoy
+    const wSinTicket = rango ? w : ('CAST(c.fecha AS DATE) = CAST(GETDATE() AS DATE)' + tiemposFiltrosExtra(f));
+
+    const porTicket = (col, alias) => nuevoReq().query(`
       SELECT TOP 10 ${col} AS nombre, ${TIEMPOS_PROM}
       ${TIEMPOS_FROM}
       WHERE ${w} AND s.finalizado = 1 AND t.id IS NOT NULL AND ${col} IS NOT NULL
       GROUP BY ${col} ORDER BY COUNT(*) DESC`);
 
     const [kpiR, analistaR, tipoR, catR, prioR, estR, sinTicketR] = await Promise.all([
-      mkReq(db, p, f).query(`
+      nuevoReq().query(`
         SELECT
           COUNT(*) AS total,
           SUM(CASE WHEN c.ticketReferencia2WD IS NOT NULL THEN 1 ELSE 0 END) AS conTicket,
@@ -474,7 +585,7 @@ const getMetricasTiempos = async (req, res) => {
         WHERE ${w}`),
 
       // Cada analista con el tiempo de SUS tramos: si un caso se pasó, el tiempo se reparte entre quienes lo atendieron
-      mkReq(db, p, f).query(`
+      nuevoReq().query(`
         SELECT a.nombre,
           COUNT(DISTINCT c.id) AS casos,
           SUM(CASE WHEN e.estado IN ('ACTIVO','INACTIVO')
@@ -492,7 +603,7 @@ const getMetricasTiempos = async (req, res) => {
           ${f.idAnalista ? 'AND a.id = @fAna' : ''}
         GROUP BY a.id, a.nombre ORDER BY COUNT(DISTINCT c.id) DESC`),
 
-      mkReq(db, p, f).query(`
+      nuevoReq().query(`
         SELECT c.tipo AS nombre, ${TIEMPOS_PROM}
         ${TIEMPOS_FROM}
         WHERE ${w} AND s.finalizado = 1
@@ -502,13 +613,13 @@ const getMetricasTiempos = async (req, res) => {
       porTicket('pr.nombre'),
       porTicket('es.nombre'),
 
-      mkReq(db, p, f).query(`
-        SELECT TOP 20
+      nuevoReq().query(`
+        SELECT TOP 200
           c.id, c.fecha, c.numerochat, c.tipo, c.nombreEDS, a.nombre AS analista,
           CASE WHEN s.finalizado = 1 THEN 1 ELSE 0 END AS finalizado,
           ISNULL(s.segAct, 0) + ISNULL(s.segIna, 0)   AS segEjec
         ${TIEMPOS_FROM}
-        WHERE ${w} AND c.ticketReferencia2WD IS NULL
+        WHERE ${wSinTicket} AND c.ticketReferencia2WD IS NULL
         ORDER BY c.fecha DESC, c.id DESC`),
     ]);
 
@@ -523,6 +634,206 @@ const getMetricasTiempos = async (req, res) => {
     });
   } catch (error) {
     console.error('Error en métricas de tiempos:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/* ── AUDITORÍA DIARIA POR ANALISTA ─────────────────────────────
+   Un analista puede tener varios casos activos a la vez, así que sumar el
+   tiempo de cada caso por separado infla el total (doble conteo en los
+   tramos donde se solapan). Para saber cuánto trabajó *de verdad* dentro
+   de su turno, se fusionan los intervalos de todos sus casos ese día:
+   si en un instante tiene AL MENOS un caso en ACTIVO, ese instante cuenta
+   como "trabajando" (está atendiendo), aunque otro caso suyo esté
+   simultáneamente en INACTIVO (esperando respuesta del cliente). Solo
+   cuenta como "esperando" el tiempo en que NINGÚN caso suyo está activo
+   pero sí hay alguno esperando. */
+function fusionarCobertura(intervalos, rangoInicioMs, rangoFinMs) {
+  const puntos = [];
+  for (const iv of intervalos) {
+    const ini = Math.max(new Date(iv.inicio).getTime(), rangoInicioMs);
+    const finRaw = iv.fin ? new Date(iv.fin).getTime() : Date.now();
+    const fin = Math.min(finRaw, rangoFinMs);
+    if (fin <= ini) continue;
+    puntos.push([ini, 1, iv.estado]);
+    puntos.push([fin, -1, iv.estado]);
+  }
+  puntos.sort((a, b) => a[0] - b[0]);
+
+  let activos = 0, inactivos = 0, trabajandoMs = 0, esperandoMs = 0, ultimoT = null;
+  for (const [t, delta, estado] of puntos) {
+    if (ultimoT !== null && t > ultimoT) {
+      const dur = t - ultimoT;
+      if (activos > 0) trabajandoMs += dur;
+      else if (inactivos > 0) esperandoMs += dur;
+    }
+    if (estado === 'ACTIVO') activos += delta; else inactivos += delta;
+    ultimoT = t;
+  }
+  return { trabajandoSeg: Math.round(trabajandoMs / 1000), esperandoSeg: Math.round(esperandoMs / 1000) };
+}
+
+const getTiemposDiario = async (req, res) => {
+  try {
+    const p = periodo(req), f = filtros(req);
+    const db = await pool;
+
+    const parseFecha = v => /^\d{4}-\d{2}-\d{2}$/.test(v ?? '') ? v : null;
+    let desde = parseFecha(req.query.desde);
+    let hasta = parseFecha(req.query.hasta);
+    // Compatibilidad con el parámetro viejo de un solo día
+    const fechaUnica = parseFecha(req.query.fecha);
+    if (fechaUnica && !desde && !hasta) { desde = fechaUnica; hasta = fechaUnica; }
+    if (desde && !hasta) hasta = desde;
+    if (hasta && !desde) desde = hasta;
+
+    let rangoInicio, rangoFin, wFecha;
+    if (desde && hasta) {
+      rangoInicio = new Date(`${desde}T00:00:00`);
+      rangoFin    = new Date(`${hasta}T23:59:59.999`);
+      wFecha = 'CAST(c.fecha AS DATE) BETWEEN @fDesde AND @fHasta';
+    } else if (p.mes > 0) {
+      rangoInicio = new Date(p.anio, p.mes - 1, 1);
+      rangoFin    = new Date(p.anio, p.mes, 0, 23, 59, 59, 999);
+      wFecha = 'YEAR(c.fecha) = @anio AND MONTH(c.fecha) = @mes';
+    } else {
+      rangoInicio = new Date(p.anio, 0, 1);
+      rangoFin    = new Date(p.anio, 11, 31, 23, 59, 59, 999);
+      wFecha = 'YEAR(c.fecha) = @anio';
+    }
+
+    let w = wFecha;
+    if (f.idAnalista)         w += ` AND (c.idAnalista = @fAna OR EXISTS (SELECT 1 FROM casos3cx_traspasos x
+                                     WHERE x.idCaso = c.id AND (x.deAnalista = @fAna OR x.aAnalista = @fAna)))`;
+    if (f.idGrupoColaborador) w += ' AND an.idGrupoColaborador = @fGrp';
+
+    const nuevoReq = () => {
+      const rq = mkReq(db, p, f);
+      if (desde && hasta) { rq.input('fDesde', sql.Date, desde); rq.input('fHasta', sql.Date, hasta); }
+      return rq;
+    };
+
+    // Intervalos crudos ACTIVO/INACTIVO de cada caso, por analista (se fusionan en JS)
+    const intervalosR = await nuevoReq().query(`
+      SELECT e.idAnalista, an.nombre, e.idCaso, e.estado, e.inicio, e.fin
+      FROM casos3cx_estados e
+      JOIN casos3cx c  ON c.id  = e.idCaso
+      JOIN analistas an ON an.id = e.idAnalista
+      WHERE e.estado IN ('ACTIVO','INACTIVO') AND ${w}
+      ORDER BY e.idAnalista, e.inicio
+    `);
+
+    // Casos atendidos y su promedio individual (sin fusión: cada caso es independiente)
+    const casosR = await nuevoReq().query(`
+      SELECT e.idAnalista, an.nombre,
+        COUNT(DISTINCT e.idCaso) AS casosAtendidos,
+        AVG(CAST(s.segAct + s.segIna AS FLOAT)) AS promEjecCaso
+      FROM casos3cx_estados e
+      JOIN casos3cx c   ON c.id  = e.idCaso
+      JOIN analistas an ON an.id = e.idAnalista
+      OUTER APPLY (
+        SELECT
+          SUM(CASE WHEN e2.estado = 'ACTIVO'   THEN DATEDIFF(SECOND, e2.inicio, ISNULL(e2.fin, GETDATE())) ELSE 0 END) AS segAct,
+          SUM(CASE WHEN e2.estado = 'INACTIVO' THEN DATEDIFF(SECOND, e2.inicio, ISNULL(e2.fin, GETDATE())) ELSE 0 END) AS segIna
+        FROM casos3cx_estados e2 WHERE e2.idCaso = e.idCaso
+      ) s
+      WHERE e.estado IN ('ACTIVO','INACTIVO') AND ${w}
+      GROUP BY e.idAnalista, an.nombre
+    `);
+
+    // Casos que ese analista tocó en el rango y que a día de hoy siguen sin FINALIZADO
+    const abiertosR = await nuevoReq().query(`
+      SELECT e.idAnalista, COUNT(DISTINCT e.idCaso) AS casosAbiertos
+      FROM casos3cx_estados e
+      JOIN casos3cx c ON c.id = e.idCaso
+      JOIN analistas an ON an.id = e.idAnalista
+      WHERE e.estado IN ('ACTIVO','INACTIVO') AND ${w}
+        AND NOT EXISTS (SELECT 1 FROM casos3cx_estados fz WHERE fz.idCaso = e.idCaso AND fz.estado = 'FINALIZADO')
+      GROUP BY e.idAnalista
+    `);
+
+    // desconexión supervisada aprobada = sigue "trabajando" aunque no esté en la cola 3CX,
+    // se inyecta como un tramo ACTIVO más
+    const rDesc = db.request();
+    rDesc.input('rIni', sql.DateTime, rangoInicio);
+    rDesc.input('rFin', sql.DateTime, rangoFin);
+    if (f.idAnalista)         rDesc.input('fAna', sql.Int, f.idAnalista);
+    if (f.idGrupoColaborador) rDesc.input('fGrp', sql.Int, f.idGrupoColaborador);
+    const desconexionesR = await rDesc.query(`
+      SELECT ds.idAnalista, an.nombre, ds.resueltoEn AS inicio, ISNULL(ds.finalizadoEn, GETDATE()) AS fin
+      FROM desconexionesSupervisadas ds
+      JOIN analistas an ON an.id = ds.idAnalista
+      WHERE ds.estado IN ('APROBADA','FINALIZADA')
+        AND ds.resueltoEn IS NOT NULL
+        AND ds.resueltoEn < @rFin AND ISNULL(ds.finalizadoEn, GETDATE()) > @rIni
+        ${f.idAnalista ? 'AND ds.idAnalista = @fAna' : ''}
+        ${f.idGrupoColaborador ? 'AND an.idGrupoColaborador = @fGrp' : ''}
+    `);
+
+    // días con actividad por analista, para promediar por día en vez del total del mes
+    const diasR = await nuevoReq().query(`
+      SELECT e.idAnalista, COUNT(DISTINCT CAST(e.inicio AS DATE)) AS dias
+      FROM casos3cx_estados e
+      JOIN casos3cx c ON c.id = e.idCaso
+      JOIN analistas an ON an.id = e.idAnalista
+      WHERE e.estado IN ('ACTIVO','INACTIVO') AND ${w}
+      GROUP BY e.idAnalista
+    `);
+
+    const porAnalista = new Map();
+    for (const row of intervalosR.recordset) {
+      if (!porAnalista.has(row.idAnalista)) {
+        porAnalista.set(row.idAnalista, { idAnalista: row.idAnalista, nombre: row.nombre, intervalos: [] });
+      }
+      porAnalista.get(row.idAnalista).intervalos.push(row);
+    }
+    for (const row of desconexionesR.recordset) {
+      if (!porAnalista.has(row.idAnalista)) {
+        porAnalista.set(row.idAnalista, { idAnalista: row.idAnalista, nombre: row.nombre, intervalos: [] });
+      }
+      porAnalista.get(row.idAnalista).intervalos.push({ estado: 'ACTIVO', inicio: row.inicio, fin: row.fin });
+    }
+
+    const casosPorAnalista    = new Map(casosR.recordset.map(r => [r.idAnalista, r]));
+    const abiertosPorAnalista = new Map(abiertosR.recordset.map(r => [r.idAnalista, r.casosAbiertos]));
+    const diasPorAnalista     = new Map(diasR.recordset.map(r => [r.idAnalista, r.dias]));
+
+    const rangoInicioMs = rangoInicio.getTime(), rangoFinMs = rangoFin.getTime();
+    const TURNO_SEG = 6 * 3600;
+    const esUnSoloDia = !!(desde && hasta && desde === hasta);
+
+    const resultado = Array.from(porAnalista.values()).map(a => {
+      const { trabajandoSeg, esperandoSeg } = fusionarCobertura(a.intervalos, rangoInicioMs, rangoFinMs);
+      const casos = casosPorAnalista.get(a.idAnalista);
+      const dias = Math.max(diasPorAnalista.get(a.idAnalista) ?? 1, 1);
+
+      // con un mes completo, promedia entre los días trabajados para comparar contra un turno de 6h
+      const trabajandoPromDiaSeg = Math.round(trabajandoSeg / dias);
+      const esperandoPromDiaSeg  = Math.round(esperandoSeg / dias);
+
+      return {
+        idAnalista:        a.idAnalista,
+        nombre:            a.nombre,
+        casosAtendidos:    casos?.casosAtendidos ?? 0,
+        promEjecCaso:      casos?.promEjecCaso ?? null,
+        diasConActividad:  dias,
+        trabajandoTotalSeg: trabajandoSeg,
+        esperandoTotalSeg:  esperandoSeg,
+        trabajandoSeg:      trabajandoPromDiaSeg,
+        esperandoSeg:       esperandoPromDiaSeg,
+        porcentajeTurno:    (trabajandoPromDiaSeg / TURNO_SEG) * 100,
+        casosAbiertos:      abiertosPorAnalista.get(a.idAnalista) ?? 0,
+      };
+    }).sort((x, y) => y.trabajandoSeg - x.trabajandoSeg);
+
+    res.json({
+      desde, hasta, mes: p.mes, anio: p.anio,
+      turnoHoras: 6,
+      esUnSoloDia,
+      analistas: resultado,
+    });
+  } catch (error) {
+    console.error('Error en tiempos diarios:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -589,5 +900,5 @@ module.exports = {
   getDistribucionTipo, getDistribucionEstatus, getDistribucionPrioridad,
   getAntiguedadAbiertos, getUltimosTickets, getRankingEDS,
   getTopAltaPrioridad, getMetricasEscalacion, getTablaEscaladosActivos,
-  getMetricasTiempos, enviarReporte,
+  getMetricasTiempos, getTiemposDiario, enviarReporte,
 };

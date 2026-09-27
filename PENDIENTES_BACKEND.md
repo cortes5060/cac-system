@@ -7,57 +7,36 @@ cuando se tenga acceso al servidor de producción. No se implementan mientras ta
 
 ## 1. Analistas nuevos creados por el import de 2WD quedan sin grupo de colaborador
 
-**Dónde:** `backend/src/controllers/import.controller.js`, función `confirmarImport`, el
-`INSERT INTO analistas` que crea analistas nuevos detectados en el Excel (creador/escalado
-que no existe todavía).
-
-**Qué pasa hoy:** el INSERT solo asigna `nombre, orden, activo, existe, idRol`. El campo
-`idGrupoColaborador` queda en `NULL`.
-
-**Por qué importa:** el filtro por grupo de colaborador en el panel de Supervisor usa ese
-campo. Un analista sin grupo asignado hace que sus tickets no aparezcan al filtrar por un
-grupo específico (solo se ven en "General"), hasta que alguien lo edite manualmente desde
-el panel del coordinador.
-
-**Posibles soluciones a evaluar cuando se retome:**
-- Heredar el grupo de quien lo escaló/asignó en la misma fila del Excel.
-- Tomarlo de una columna del Excel si 2WD llega a incluir esa información.
-- Dejarlo en un grupo por defecto configurable en vez de NULL.
+**✅ Resuelto.** El import ahora crea automáticamente el `gruposColaborador` que falte
+para el **grupo del ticket** (excel > responsable > creador). Un **analista nuevo**
+creado por el mismo import (creador/escalado que no existía) sigue quedando con
+`idGrupoColaborador = NULL` a propósito — eso se mantiene manual, se asigna desde el
+panel de Coordinador (sección "Grupos de Colaboradores" o "Horarios de asignación").
 
 ---
 
 ## 2. Top 5 Categorías / Top 5 EDS en "Resumen" del supervisor, ampliar a Top 10
 
-**Dónde:** `backend/src/controllers/supervisor.controller.js`, función `getKPIs` — las
-consultas `topCatR` y `topEdsR` usan `SELECT TOP 5`.
-
-**Qué pasa hoy:** el endpoint `/api/supervisor/kpis` solo devuelve 5 categorías y 5 EDS,
-así que el frontend no tiene más datos para mostrar aunque se cambie la vista.
-
-**Solución:** cambiar `TOP 5` → `TOP 10` en ambas consultas. Cambio simple, una vez se
-haga el frontend ya está listo para pintar la lista más larga sin tocar nada más
-(`renderResumenTopLista` en `electron/supervisor.js` ya es genérica).
+**✅ Resuelto.** `topCatR` y `topEdsR` en `getKPIs` ya usan `SELECT TOP 10`.
 
 ---
 
 ## 3. Reestructurar la tabla de Escalados Activos (vista Escalación)
 
 **Dónde:** `backend/src/controllers/supervisor.controller.js`, función
-`getTablaEscaladosActivos` (`SELECT TOP 20`). También existía `getTopAltaPrioridad`
-(`SELECT TOP 10`) para la tabla de "Alta Prioridad", que por ahora se quitó del frontend
-(`electron/supervisor.html` y `supervisor.js`) por ser redundante con esta.
+`getTablaEscaladosActivos`. También existía `getTopAltaPrioridad` (`SELECT TOP 10`) para
+la tabla de "Alta Prioridad", que se quitó del frontend (`electron/supervisor.html` y
+`supervisor.js`) por ser redundante con esta.
 
-**Qué pasa hoy:** la tabla solo trae los primeros 20 tickets escalados y abiertos
-(`escalado != idAnalista` y estatus no Cerrado/Cancelado), ordenados por prioridad y
-fecha. Si hay más de 20, el resto no se ve en ningún lado.
+**✅ Ya resuelto:** se quitó el `TOP 20` (trae todos los tickets escalados y abiertos,
+sin límite) y el orden ahora es `t.fechaHora ASC` (del más antiguo al más reciente, en
+vez de por prioridad). Título del frontend actualizado.
 
-**Lo que se pidió:**
-1. Que traiga **todos** los tickets abiertos que han sido escalados, sin el límite de 20.
-2. Rediseñar cómo se muestra para que sea más fácil de entender de un vistazo — hoy es
-   una tabla ancha con muchas columnas (código, caso, EDS, creador, escalado a, grupo,
-   estatus, prioridad, registro). Vale la pena repensar el layout: quizás agrupar por
-   grupo/analista receptor, resaltar mejor la prioridad, o separar visualmente los muy
-   antiguos de los recientes en vez de una sola tabla plana.
+**Sigue pendiente:** rediseñar cómo se muestra para que sea más fácil de entender de un
+vistazo — hoy es una tabla ancha con muchas columnas (código, caso, EDS, creador,
+escalado a, grupo, estatus, prioridad, registro). Vale la pena repensar el layout:
+quizás agrupar por grupo/analista receptor, resaltar mejor la prioridad, o separar
+visualmente los muy antiguos de los recientes en vez de una sola tabla plana.
 
 **Nota relacionada:** también quedó pendiente en el punto de "Escalados" (KPI del
 resumen de Escalación) si el conteo de "escalado" debería ampliarse más allá de
@@ -90,30 +69,36 @@ en el frontend.
 el tiempo entre que se **crea** el ticket en 2WD y se **cierra**, usando la tabla
 `tickets` directamente. No existe hoy en ningún lado del sistema.
 
-**Ya hecho (base de datos, no requiere migración pendiente):** la columna `fechaCaso`
-era tipo `date` (sin hora) y por eso se perdía la precisión, aunque el Excel de 2WD
-("FECHA DE FINALIZACIÓN") sí trae hora completa. Se corrigió con:
+**Ya hecho (base de datos):** la columna `fechaCaso` era tipo `date` (sin hora) y por
+eso se perdía la precisión, aunque el Excel de 2WD ("FECHA DE FINALIZACIÓN") sí trae
+hora completa. Se corrigió con:
 ```sql
 ALTER TABLE tickets ALTER COLUMN fechaCaso DATETIME NULL;
 ```
 Esto ya se aplicó en la base local; **falta correrlo en producción** (el SQL de arriba).
 
-**Lo que sigue pendiente (código del backend):**
-1. `import.controller.js` línea ~207 (`fechaCaso: fmtDate(dFin)`) y línea ~330/366
-   (`sql.Date` al insertar/actualizar `fechaCaso`) — hoy igual truncan la hora al
-   guardar, aunque la columna ya la pueda recibir. Hay que cambiar `fmtDate` por algo
-   que conserve hora:minuto, y el tipo del parámetro de `sql.Date` a `sql.DateTime`.
-2. `ticket.controller.js` línea ~24 — mismo caso, usa `sql.Date` para `fechaCaso`.
-3. Nueva consulta en `supervisor.controller.js` para el KPI en sí, ya con precisión de
-   horas:
+**✅ Código ya resuelto:**
+1. `import.controller.js` — `fmtDate` (truncaba a solo fecha) se eliminó, ahora usa
+   `fmtDateTime` para `fechaCaso` en el insert/update del import, y los parámetros
+   `sql.Date` de `fechaCaso` pasaron a `sql.DateTime` (tanto en el INSERT como en el
+   UPDATE). El preview (`previewExcel`) también compara con precisión de minuto
+   (`CONVERT(VARCHAR(19), fechaCaso, 120)`) en vez de solo fecha.
+2. `ticket.controller.js` — el parámetro `fechaCaso` pasó de `sql.Date` a `sql.DateTime`.
+3. Nuevo campo `promResolucion2WD` (minutos) agregado a la respuesta de `getKPIs` en
+   `supervisor.controller.js`:
    ```sql
-   SELECT AVG(CAST(DATEDIFF(MINUTE, fechaHora, fechaCaso) AS FLOAT)) AS promMinutos
-   FROM tickets
-   WHERE fechaCaso IS NOT NULL AND ${periodoWhere}${filtroWhere}
+   SELECT AVG(CAST(DATEDIFF(MINUTE, t.fechaHora, t.fechaCaso) AS FLOAT)) AS promMinutos
+   FROM tickets t WHERE t.fechaCaso IS NOT NULL AND ${pw}${fw}
    ```
-   Agregar como campo nuevo en la respuesta de `getKPIs` (o un endpoint aparte), y en el
-   frontend mostrarlo junto al de `casos3cx` pero dejando claro que son dos métricas
-   distintas (una es "atención en 3CX", la otra "ciclo de vida del ticket en 2WD").
+4. Frontend (`electron/supervisor.js`/`.html`): nuevo KPI "Tiempo Promedio 2WD" junto al
+   de 3CX, con subtítulos aclarando que son métricas distintas ("atención en 3CX" vs.
+   "ciclo de vida del ticket"). Grid de KPIs ajustado a 7 columnas en pantallas grandes.
+
+**Ojo — falta correr en producción antes de que el dato tenga sentido:** el
+`ALTER TABLE` de arriba. Mientras la columna siga siendo `date` en el servidor, el
+código ya guarda `DateTime` pero SQL Server igual lo trunca a medianoche al insertar,
+así que el KPI dará siempre horas completas de más (nunca minutos). Correr el ALTER
+antes de considerar el punto totalmente cerrado en producción.
 
 **Ojo dato sin usar:** la columna `tiempoAtencionMin` de `tickets` existe en la tabla
 pero el import siempre la inserta en `NULL` (`import.controller.js` línea ~327) — nunca
@@ -124,32 +109,44 @@ directa de sacar este promedio sin depender de restar fechas.
 
 ## 6. Buscador real en "Historial de Tickets" (vista Historial del supervisor)
 
+**✅ Resuelto.** `getUltimosTickets` (`backend/src/controllers/supervisor.controller.js`)
+ahora acepta `q` (código o texto del caso, con escape de comodines de `LIKE`), `desde`/
+`hasta` (rango de fechas sobre `fechaHora`), `estatus` (nombre exacto) e `idTipoCaso`.
+Sin ningún filtro nuevo activo se comporta igual que antes (`TOP 10` más recientes); en
+cuanto se manda cualquiera de esos filtros, quita el límite (`TOP 200` como tope de
+seguridad). La respuesta cambió de un array plano a `{ tickets, filtrado }`.
+
+**Frontend:** `electron/supervisor.html` (vista Historial) tiene la barra de filtros
+(texto, desde, hasta, estatus, tipo) con botones Buscar/Limpiar. `electron/supervisor.js`
+agrega `buscarHistorial()` / `limpiarHistorial()`, puebla el select de estatus desde
+`ESTATUS_COLORS` y el de tipo desde `/api/catalogos/tiposcaso`, y el título de la tabla
+cambia a "N tickets encontrados" cuando hay un filtro aplicado.
+
+**Nota:** el filtro por categoría/grupo/EDS/analista ya se hereda del filtro global del
+dashboard (no se duplicó en esta barra) — sigue funcionando igual que antes.
+
+---
+
+## 7. Reestructurar el panel "Tiempos 3CX" para que sirva de auditoría
+
 **Dónde:** `backend/src/controllers/supervisor.controller.js`, función
-`getUltimosTickets` — hoy siempre hace `SELECT TOP 10 ... ORDER BY fechaHora DESC`, sin
-ningún filtro de búsqueda propio (solo hereda período/analista/EDS/categoría/grupo que
-ya trae el resto del dashboard).
+`getMetricasTiempos`, más los gráficos correspondientes en `electron/supervisor.html` /
+`supervisor.js`.
 
-**Qué se pidió:** una barra de búsqueda dedicada en Historial, con filtros por:
-- Número / código de ticket (2WD)
-- Rango de fechas
-- Estatus (Cerrado, En curso, Pendiente facturación, etc.)
-- (Idealmente también EDS y prioridad, ya que la tabla los muestra)
+**Quitar / bajar prioridad (frontend, no requiere backend):**
+- Gráfico "Tiempo promedio por estatus del ticket" — poco accionable para auditar.
+- Achicar "Chat vs Llamada" (de gráfico completo a un dato dentro de los KPIs).
 
-**Comportamiento esperado:** sin ningún filtro activo, se comporta como hoy — muestra
-los 10 más recientes (para no cargar de más al abrir la vista). En cuanto se aplica
-**cualquier** filtro, trae **todos** los tickets que coincidan, sin límite de 10.
+**Agregar (sí requiere backend, es lo importante de este punto):** un gráfico de
+**tendencia diaria** del tiempo promedio de ejecución dentro del período — hoy
+`getMetricasTiempos` solo devuelve el promedio total del período completo, no hay forma
+de ver si un día específico se disparó. Se necesita una consulta nueva agrupando por
+día (`GROUP BY CAST(c.fecha AS DATE)` sobre `casos3cx` con el mismo `TIEMPOS_FROM`/
+`TIEMPOS_PROM` que ya existen), devuelta como un array `{fecha, promEjec}` que el
+frontend pueda graficar como línea (mismo patrón que `chart-resumen-tendencia`, que ya
+muestra tendencia diaria pero de cantidad de tickets, no de tiempo).
 
-**Cómo implementarlo (patrón ya existe en el proyecto, se puede copiar):**
-`casos.controller.js` → `buscarCasos` (endpoint `/api/casos/buscar`) ya hace exactamente
-este patrón — búsqueda por texto libre + rango de fechas + tipo, con escape de
-comodines de `LIKE`, y sin `TOP` fijo (usa `TOP 200` como tope de seguridad, no de UX).
-Se puede replicar esa misma lógica para un endpoint nuevo tipo
-`GET /api/supervisor/buscar-tickets`, agregando estatus como filtro adicional
-(`JOIN estatus e ON t.idEstatus = e.id WHERE e.nombre = @estatus`).
-
-**Frontend:** ya hay un ejemplo de UI de filtros de búsqueda funcionando en
-`electron/dashboard.js` (`ejecutarBusquedaCasos`, sección "Buscar Casos" del analista) —
-mismo estilo de inputs (texto, fecha desde/hasta, select) se puede reutilizar en
-`electron/supervisor.html`/`supervisor.js` para esta vista de Historial.
+**Este punto queda para el final** de esta ronda de cambios de backend (así lo pidió
+el usuario) — hacer primero los puntos 1 al 6.
 
 ---

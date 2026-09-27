@@ -14,6 +14,7 @@ const sonidoAlerta     = new Audio('sonidos/petro.mp3');
 const sonidoActivar    = new Audio('sonidos/mario.mp3');
 const sonidoInactivar  = new Audio('sonidos/mario_die.mp3');
 const sonidoBloqueado  = new Audio('sonidos/trabaja_tienes_que_tr.mp3');
+const sonidoDesconexionRechazada = new Audio('sonidos/desconexion_rechazada.mp3');
 
 function reproducirSonidoAlerta() {
     sonidoAlerta.currentTime = 0;
@@ -28,6 +29,11 @@ function reproducirSonidoActivar() {
 function reproducirSonidoInactivar() {
     sonidoInactivar.currentTime = 0;
     sonidoInactivar.play().catch(err => console.warn('No se pudo reproducir el sonido de inactivación:', err));
+}
+
+function reproducirSonidoDesconexionRechazada() {
+    sonidoDesconexionRechazada.currentTime = 0;
+    sonidoDesconexionRechazada.play().catch(err => console.warn('No se pudo reproducir el sonido de desconexión rechazada:', err));
 }
 
 /* ============================= */
@@ -63,6 +69,12 @@ socket.on("casosAutoFinalizados", () => {
     if (document.getElementById("tablaMisCasos")) cargarMisCasos();
 });
 
+// Al inactivarse (o al aprobarse una desconexión supervisada), los casos que
+// tenía en ACTIVO pasan a "no responde" en el servidor — refresca la tabla.
+socket.on("casosActualizados", () => {
+    if (document.getElementById("tablaMisCasos")) cargarMisCasos();
+});
+
 socket.on("nuevoCaso3CX", (caso) => {
     console.log("Nuevo caso:", caso);
     refrescarTablasCasos(caso);
@@ -75,6 +87,22 @@ socket.on("nuevoCaso3CX", (caso) => {
 
     const input = document.getElementById("numeroChat");
     if (input) input.focus();
+});
+
+socket.on("desconexionResuelta", (d) => {
+    if (d.idAnalista != idActual) return;
+    if (d.aprobada) {
+        mostrarToast("El coordinador aprobó tu desconexión supervisada");
+    } else {
+        mostrarToast("El coordinador rechazó tu solicitud de desconexión");
+        reproducirSonidoDesconexionRechazada();
+    }
+    cargarMiDesconexion();
+});
+
+socket.on("desconexionFinalizada", (d) => {
+    if (d.idAnalista != idActual) return;
+    cargarMiDesconexion();
 });
 
 /* ============================= */
@@ -120,6 +148,7 @@ async function cargarAnalistaSeleccionado() {
         actualizarEstadoVisual(analistaActual.activo);
         cargarAnalistasActivos();
         actualizarEstadoBoton();
+        actualizarBotonDesconexion();
 
     } catch (error) {
         console.error("Error:", error.message);
@@ -243,7 +272,6 @@ async function cargarAnalistasActivos() {
         const contenedor = document.getElementById("listaActivos");
         contenedor.innerHTML = "";
 
-        //
         const activosOrdenados = analistas
             .filter(a => a.activo == 1)
             .sort((a, b) => a.orden - b.orden);
@@ -310,10 +338,7 @@ function escapeHtml(v) {
     }[ch]));
 }
 
-// El backend guarda la hora local (Bogotá) pero la serializa como si fuera
-// UTC (con "Z"). Si se deja que Date/toLocaleString reconviertan la zona
-// horaria, se resta el offset dos veces y la hora queda mal. Por eso se
-// leen los numeros tal cual vienen en el texto, sin conversion de zona.
+// el backend manda hora local con "Z" como si fuera UTC, así que se parsea el texto tal cual
 function partesFecha(f) {
     const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
     if (!m) return null;
@@ -614,6 +639,137 @@ function mostrarDialogo({ titulo, mensaje, textoConfirmar, onConfirmar, onCancel
 
 function mostrarAviso(mensaje) {
     mostrarDialogo({ titulo: "Aviso", mensaje });
+}
+
+/* ============================= */
+/* DESCONEXIÓN SUPERVISADA       */
+/* ============================= */
+
+let desconexionActual = null; // null | { id, estado: 'PENDIENTE' | 'APROBADA' }
+
+async function cargarMiDesconexion() {
+    try {
+        const r = await fetch(`${API}/api/analista/${idActual}/desconexion/mia`);
+        desconexionActual = await r.json();
+    } catch (error) {
+        console.error("Error cargando desconexión supervisada:", error);
+    }
+    actualizarBotonDesconexion();
+}
+
+function actualizarBotonDesconexion() {
+    const btn = document.getElementById("btnDesconexion");
+    if (!btn) return;
+
+    if (!desconexionActual) {
+        // Solo tiene sentido pedir una desconexión supervisada si está activo (en la cola).
+        if (!analistaActual || analistaActual.activo != 1) {
+            btn.hidden = true;
+            btn.onclick = null;
+            return;
+        }
+        btn.hidden = false;
+        btn.textContent = "Desconexión supervisada";
+        btn.disabled = false;
+        btn.className = "ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 transition";
+        btn.onclick = abrirModalDesconexion;
+    } else if (desconexionActual.estado === "PENDIENTE") {
+        btn.hidden = false;
+        btn.textContent = "Solicitud enviada, esperando aprobación…";
+        btn.disabled = true;
+        btn.className = "ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-300 text-gray-500 bg-gray-100 cursor-not-allowed";
+        btn.onclick = null;
+    } else if (desconexionActual.estado === "APROBADA") {
+        btn.hidden = false;
+        btn.textContent = "Finalizar desconexión supervisada";
+        btn.disabled = false;
+        btn.className = "ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 transition";
+        btn.onclick = confirmarFinalizarDesconexion;
+    }
+}
+
+function abrirModalDesconexion() {
+    const modal = document.createElement("div");
+    modal.className = "fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50";
+
+    modal.innerHTML = `
+        <div class="bg-white rounded-3xl shadow-2xl w-96 mx-4 overflow-hidden fade-in">
+            <div class="px-8 py-5" style="background:#122B4F">
+                <h2 class="text-white text-lg font-bold">Desconexión supervisada</h2>
+            </div>
+            <div class="p-8">
+                <p class="text-gray-600 text-sm mb-4">
+                    Se enviará una solicitud al coordinador. Solo quedas fuera de la cola
+                    si él la aprueba — mientras esperas, sigues activo normalmente.
+                </p>
+                <textarea id="descMotivo" rows="3" placeholder="¿Qué actividad vas a hacer?"
+                    style="width:100%;padding:10px 12px;border:1px solid #E5E7EB;border-radius:12px;
+                    font-size:14px;background:#fff;margin-bottom:20px;resize:none"></textarea>
+                <div class="flex gap-3">
+                    <button data-accion="cancelar"
+                        class="flex-1 py-3 rounded-xl font-semibold text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 transition">Cancelar</button>
+                    <button data-accion="ok"
+                        class="flex-1 py-3 text-white rounded-xl font-semibold text-sm hover:opacity-90 transition"
+                        style="background:#EA580C">Enviar solicitud</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    modal.querySelector('[data-accion="cancelar"]').addEventListener("click", () => modal.remove());
+
+    modal.querySelector('[data-accion="ok"]').addEventListener("click", async () => {
+        const motivo = modal.querySelector("#descMotivo").value.trim();
+        if (!motivo) { mostrarAviso("Escribe qué actividad vas a hacer"); return; }
+        modal.remove();
+        await enviarSolicitudDesconexion(motivo);
+    });
+
+    document.body.appendChild(modal);
+}
+
+async function enviarSolicitudDesconexion(motivo) {
+    try {
+        const r = await fetch(`${API}/api/analista/${idActual}/desconexion/solicitar`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ motivo })
+        });
+        const data = await r.json();
+        if (!r.ok) { mostrarAviso(data.error || "No se pudo enviar la solicitud"); return; }
+        await cargarMiDesconexion();
+        mostrarToast("Solicitud enviada al coordinador");
+    } catch (error) {
+        console.error("Error enviando desconexión supervisada:", error);
+        mostrarAviso("Error enviando la solicitud");
+    }
+}
+
+function confirmarFinalizarDesconexion() {
+    mostrarDialogo({
+        titulo: "Finalizar desconexión",
+        mensaje: "Vuelves a entrar a la cola de atención. ¿Ya terminaste la actividad asignada?",
+        textoConfirmar: "Sí, volver a la cola",
+        onConfirmar: enviarFinalizarDesconexion
+    });
+}
+
+async function enviarFinalizarDesconexion() {
+    try {
+        const r = await fetch(`${API}/api/analista/${idActual}/desconexion/${desconexionActual.id}/finalizar`, { method: "POST" });
+        const data = await r.json();
+        if (!r.ok) { mostrarAviso(data.error || "No se pudo finalizar la desconexión"); return; }
+        await cargarMiDesconexion();
+    } catch (error) {
+        console.error("Error finalizando desconexión supervisada:", error);
+        mostrarAviso("Error finalizando la desconexión");
+    }
+}
+
+function onClickDesconexion() {
+    // El estado real del botón (habilitado/handler) lo define actualizarBotonDesconexion();
+    // esta función solo existe como fallback del atributo onclick estático del HTML inicial.
+    if (!desconexionActual) abrirModalDesconexion();
 }
 
 function cambiarEstadoCaso(idCaso, estado) {
@@ -1101,17 +1257,9 @@ async function mostrarModulo(tipo) {
     if (tipo === "cx3") {
 
         contenedor.innerHTML = `
-            <div class="flex flex-col xl:flex-row gap-6 xl:gap-8 fade-in">
+            <div class="flex flex-col gap-6 fade-in">
 
-            <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-5">
-                    <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
-                    <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Mis casos de hoy</h2>
-                </div>
-                <div id="tablaMisCasos" class="text-gray-600 text-sm">Cargando...</div>
-            </div>
-
-            <div class="w-full max-w-sm xl:max-w-none xl:w-72 xl:flex-shrink-0">
+            <div class="w-full max-w-xs">
                 <div class="flex items-center gap-2 mb-4">
                     <div class="w-1 h-5 rounded-full" style="background:#C41E3A"></div>
                     <h3 class="text-base font-bold text-gray-700 tracking-wide uppercase">Tomar Caso</h3>
@@ -1155,8 +1303,22 @@ async function mostrarModulo(tipo) {
                 </div>
             </div>
 
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-5">
+                    <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
+                    <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Mis casos de hoy</h2>
+                    <button id="btnDesconexion" onclick="onClickDesconexion()"
+                        class="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 transition">
+                        Desconexión supervisada
+                    </button>
+                </div>
+                <div id="tablaMisCasos" class="text-gray-600 text-sm">Cargando...</div>
+            </div>
+
             </div>
             `;
+
+        cargarMiDesconexion();
 
         const input = document.getElementById("numeroChat");
 
@@ -1375,35 +1537,6 @@ async function mostrarModulo(tipo) {
                     </div>
                 </div>
 
-                <!-- PANEL IA -->
-                <div class="w-72 flex-shrink-0">
-                    <div class="flex items-center gap-2 mb-4">
-                        <div class="w-1 h-5 rounded-full" style="background:#C41E3A"></div>
-                        <h3 class="text-base font-bold text-gray-700 tracking-wide uppercase">Asistente IA</h3>
-                        <span class="text-xs px-2 py-0.5 rounded-full text-white font-bold" style="background:#1565C0">Claude</span>
-                    </div>
-                    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3">
-                        <textarea id="ia_prompt" rows="5" placeholder="Describe el caso o escribe lo que necesitas y la IA te ayudará a redactar el ticket..."
-                            class="w-full border border-gray-200 bg-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition resize-none"></textarea>
-                        <button onclick="consultarIA()" id="ia_btn"
-                            class="w-full py-2.5 text-white rounded-xl font-semibold text-sm transition hover:opacity-90"
-                            style="background: linear-gradient(135deg, #C41E3A, #9a1228)">
-                            ✨ Generar con IA
-                        </button>
-                        <div id="ia_loading" class="hidden text-center py-3">
-                            <div class="inline-block w-6 h-6 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-2"></div>
-                            <p class="text-xs text-gray-600">Generando respuesta...</p>
-                        </div>
-                        <div id="ia_resultado" class="hidden space-y-2">
-                            <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Respuesta</div>
-                            <div id="ia_texto" class="text-sm text-gray-700 bg-white rounded-xl border border-gray-200 p-3 max-h-52 overflow-y-auto leading-relaxed whitespace-pre-wrap"></div>
-                            <button onclick="copiarIA()" class="w-full py-2 text-gray-600 border border-gray-300 rounded-xl text-xs font-semibold hover:bg-gray-100 transition">
-                                Copiar texto
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
             </div>`;
 
         try {
@@ -1418,6 +1551,8 @@ async function mostrarModulo(tipo) {
         } catch (err) {
             console.error('Error cargando catálogos:', err);
         }
+    } else if (tipo === "tiempomuerto") {
+        abrirTiempoMuerto("moduloContenido");
     }
 }
 async function tomarCaso() {
@@ -1643,7 +1778,7 @@ async function cargarMetricas() {
         const res  = await fetch(`${API}/api/metricas?fechaInicio=${inicio}&fechaFin=${fin}`);
         const data = await res.json();
 
-        const total = data.reduce((s, d) => s + d.casos, 0);
+        const total = data.reduce((s, d) => s + d.activos + d.cerrados, 0);
         const elTotal = document.getElementById('met_total');
         if (elTotal) elTotal.textContent = total;
 
@@ -1660,29 +1795,36 @@ async function cargarMetricas() {
 
         if (_metChart) { _metChart.destroy(); _metChart = null; }
 
-        const colores = ['#122B4F', '#1565C0', '#1976D2', '#1E88E5', '#42A5F5'];
-
         _metChart = new Chart(document.getElementById('met_canvas'), {
             type: 'bar',
             data: {
                 labels: data.map(d => d.nombre),
-                datasets: [{
-                    label: 'Casos',
-                    data:  data.map(d => d.casos),
-                    backgroundColor: data.map((_, i) => colores[i % colores.length]),
-                    borderRadius: 8,
-                    borderSkipped: false,
-                }]
+                datasets: [
+                    {
+                        label: 'Activos',
+                        data: data.map(d => d.activos),
+                        backgroundColor: '#EA580C',
+                        borderRadius: 8,
+                        borderSkipped: false,
+                    },
+                    {
+                        label: 'Cerrados',
+                        data: data.map(d => d.cerrados),
+                        backgroundColor: '#1565C0',
+                        borderRadius: 8,
+                        borderSkipped: false,
+                    },
+                ]
             },
             options: {
                 indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { display: false },
+                    legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 12, font: { size: 11.5, weight: '600' } } },
                     tooltip: {
                         callbacks: {
-                            label: ctx => `  ${ctx.raw} caso${ctx.raw !== 1 ? 's' : ''}`
+                            label: ctx => `  ${ctx.dataset.label}: ${ctx.raw} caso${ctx.raw !== 1 ? 's' : ''}`
                         }
                     }
                 },
@@ -1705,50 +1847,5 @@ async function cargarMetricas() {
         placeholder.classList.remove('hidden');
         wrap.classList.add('hidden');
     }
-}
-
-/* ============================= */
-/* IA                            */
-/* ============================= */
-
-async function consultarIA() {
-    const prompt = document.getElementById('ia_prompt')?.value?.trim();
-    if (!prompt) return;
-
-    const btn     = document.getElementById('ia_btn');
-    const loading = document.getElementById('ia_loading');
-    const result  = document.getElementById('ia_resultado');
-
-    btn.disabled = true;
-    btn.style.opacity = '0.6';
-    loading.classList.remove('hidden');
-    result.classList.add('hidden');
-
-    try {
-        const res = await fetch(`${API}/api/ia/generar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt })
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Error');
-
-        document.getElementById('ia_texto').textContent = data.resultado;
-        result.classList.remove('hidden');
-
-    } catch (err) {
-        document.getElementById('ia_texto').textContent = `Error: ${err.message}`;
-        result.classList.remove('hidden');
-    } finally {
-        btn.disabled = false;
-        btn.style.opacity = '1';
-        loading.classList.add('hidden');
-    }
-}
-
-function copiarIA() {
-    const texto = document.getElementById('ia_texto')?.textContent || '';
-    navigator.clipboard.writeText(texto).catch(() => {});
 }
 

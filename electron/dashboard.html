@@ -173,6 +173,10 @@
           class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800">
           🎫 Crear Ticket
         </button>
+        <button onclick="activarTab('tiempomuerto')" id="tab-tiempomuerto"
+          class="tab-btn px-5 py-2.5 rounded-t-xl text-sm font-semibold text-gray-500 hover:text-gray-800 ml-auto">
+          🎮 Tiempo muerto
+        </button>
       </div>
 
       <!-- Content -->
@@ -196,7 +200,7 @@
   <script src="socket.io.min.js"></script>
   <script>
     function activarTab(tipo) {
-      ['cx3','buscar','ult10','aa','ticket'].forEach(t => {
+      ['cx3','buscar','ult10','aa','ticket','tiempomuerto'].forEach(t => {
         const tab = document.getElementById('tab-' + t);
         if (tab) tab.classList.remove('active');
       });
@@ -206,6 +210,7 @@
     }
   </script>
   <script src="dashboard.js"></script>
+  <script src="juegos.js"></script>
 
 </body>
 </html>

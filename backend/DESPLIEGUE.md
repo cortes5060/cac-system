@@ -49,9 +49,6 @@ DB_PORT=1433
 
 PORT=3000
 
-# Solo si van a usar la IA de ticket.controller/ia.controller:
-ANTHROPIC_API_KEY=<clave real, o dejar vacío si no se usa esa función>
-
 # Solo si van a usar "Enviar informe" por correo:
 MAIL_PROVIDER=gmail          # o "office365"
 MAIL_USER=<correo remitente>

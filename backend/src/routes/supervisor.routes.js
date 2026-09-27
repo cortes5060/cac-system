@@ -15,6 +15,7 @@ const {
   getMetricasEscalacion,
   getTablaEscaladosActivos,
   getMetricasTiempos,
+  getTiemposDiario,
   enviarReporte,
 } = require('../controllers/supervisor.controller');
 
@@ -35,6 +36,7 @@ router.get('/top-alta-prioridad',     getTopAltaPrioridad);
 router.get('/metricas-escalacion',    getMetricasEscalacion);
 router.get('/escalados-activos',      getTablaEscaladosActivos);
 router.get('/tiempos-respuesta',      getMetricasTiempos);
+router.get('/tiempos-diario',         getTiemposDiario);
 router.post('/reporte/enviar',        upload.single('informe'), enviarReporte);
 
 module.exports = router;

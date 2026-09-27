@@ -2,12 +2,8 @@ const supervId     = localStorage.getItem('supervId');
 const supervNombre = localStorage.getItem('supervNombre');
 if (!supervId) window.location.href = 'index.html';
 
-// El backend guarda la hora local (Bogotá) pero la serializa como si fuera
-// UTC (con "Z"). Si se deja que Date/toLocaleString reconviertan la zona
-// horaria, se resta el offset dos veces y la hora queda mal. Por eso se
-// leen los numeros tal cual vienen en el texto, sin conversion de zona.
-// (No aplica a fechas creadas en el navegador con "new Date()", esas si
-// son un instante real y su conversion de zona horaria es correcta.)
+// el backend manda hora local con "Z" como si fuera UTC, así que no se puede
+// dejar que Date la reconvierta (restaría el offset dos veces) — se parsea el texto tal cual
 function formatearFechaCruda(f) {
   const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
   if (!m) return '—';
@@ -139,11 +135,12 @@ function crearBuscable({ inputId, listId, clearId, opciones, onSelect }) {
   renderOpts('');
 
   return {
+    // no recarga el dashboard aquí para no dispararlo varias veces seguidas (parpadeo de KPIs) —
+    // eso lo decide quien llama a clear()
     clear() {
       input.value = '';
       if (clearBtn) clearBtn.style.display = 'none';
-      onSelect('');
-      actualizarIndicadorFiltros();
+      onSelect('', true);
       list.classList.remove('open');
     }
   };
@@ -178,12 +175,31 @@ function seleccionarGrupo(id) {
 
 async function cargarFiltros() {
   try {
-    const [analistas, estaciones, categorias, gruposCategoria] = await Promise.all([
+    const [analistas, estaciones, categorias, gruposCategoria, tiposCaso] = await Promise.all([
       fetch(`${API}/api/catalogos/analistas`).then(r => r.json()),
       fetch(`${API}/api/catalogos/estaciones`).then(r => r.json()),
       fetch(`${API}/api/catalogos/categorias`).then(r => r.json()),
       fetch(`${API}/api/catalogos/grupos-categoria`).then(r => r.json()),
+      fetch(`${API}/api/catalogos/tiposcaso`).then(r => r.json()).catch(() => []),
     ]);
+
+    const selHistEstatus = document.getElementById('hist-estatus');
+    if (selHistEstatus) {
+      Object.keys(ESTATUS_COLORS).filter(n => n !== 'Sin estatus').forEach(n => {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        selHistEstatus.appendChild(o);
+      });
+    }
+
+    const selHistTipo = document.getElementById('hist-tipo');
+    if (selHistTipo) {
+      tiposCaso.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.id; o.textContent = t.nombre;
+        selHistTipo.appendChild(o);
+      });
+    }
 
     const selAna = document.getElementById('fil-analista');
     analistas.forEach(a => {
@@ -204,18 +220,54 @@ async function cargarFiltros() {
     buscEDS = crearBuscable({
       inputId: 'fil-eds-input', listId: 'fil-eds-list', clearId: 'fil-eds-clear',
       opciones: estaciones.map(e => ({ value: e.nombre, label: e.nombre })),
-      onSelect(v) { filtroEDS = v; actualizarIndicadorFiltros(); cargarDashboard(); }
+      onSelect(v, silencioso) { filtroEDS = v; actualizarIndicadorFiltros(); if (!silencioso) cargarDashboard(); }
     });
 
     buscCat = crearBuscable({
       inputId: 'fil-cat-input', listId: 'fil-cat-list', clearId: 'fil-cat-clear',
       opciones: categorias.map(c => ({ value: String(c.id), label: c.nombre })),
-      onSelect(v) { filtroCategoria = v; actualizarIndicadorFiltros(); cargarDashboard(); }
+      onSelect(v, silencioso) { filtroCategoria = v; actualizarIndicadorFiltros(); if (!silencioso) cargarDashboard(); }
     });
 
   } catch (e) {
     console.error('Error cargando filtros:', e);
   }
+}
+
+async function buscarHistorial() {
+  const q       = document.getElementById('hist-q').value.trim();
+  const desde   = document.getElementById('hist-desde').value;
+  const hasta   = document.getElementById('hist-hasta').value;
+  const estatus = document.getElementById('hist-estatus').value;
+  const idTipoCaso = document.getElementById('hist-tipo').value;
+
+  let qs = `mes=${mesActual}&anio=${anioActual}`;
+  if (filtroAnalista)   qs += `&idAnalista=${filtroAnalista}`;
+  if (filtroEDS)        qs += `&eds=${encodeURIComponent(filtroEDS)}`;
+  if (filtroCategoria)  qs += `&idCategoria=${filtroCategoria}`;
+  if (filtroGrupoCategoria) qs += `&grupoCategoria=${encodeURIComponent(filtroGrupoCategoria)}`;
+  if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
+  if (q)          qs += `&q=${encodeURIComponent(q)}`;
+  if (desde)      qs += `&desde=${desde}`;
+  if (hasta)      qs += `&hasta=${hasta}`;
+  if (estatus)    qs += `&estatus=${encodeURIComponent(estatus)}`;
+  if (idTipoCaso) qs += `&idTipoCaso=${idTipoCaso}`;
+
+  try {
+    const r = await fetch(`${API}/api/supervisor/ultimos-tickets?${qs}`).then(r => r.json());
+    renderTablaUltimos(r.tickets || [], r.filtrado);
+  } catch (e) {
+    console.error('Error buscando historial:', e);
+  }
+}
+
+function limpiarHistorial() {
+  document.getElementById('hist-q').value = '';
+  document.getElementById('hist-desde').value = '';
+  document.getElementById('hist-hasta').value = '';
+  document.getElementById('hist-estatus').value = '';
+  document.getElementById('hist-tipo').value = '';
+  buscarHistorial();
 }
 
 function actualizarIndicadorFiltros() {
@@ -279,13 +331,16 @@ async function esperarFrame(n = 1) {
   for (let i = 0; i < n; i++) await new Promise(r => requestAnimationFrame(r));
 }
 
-// Las tablas largas viven dentro de un contenedor con scroll interno (max-height + overflow),
-// que recorta lo que no se ve en pantalla. Para el informe hay que destaparlas mientras se
-// captura, pero con un límite generoso: alguna tabla (p. ej. Ranking EDS) puede traer cientos
-// de filas sin límite del servidor, y capturarla entera volvería la imagen gigante y muy lenta.
-const ALTO_MAXIMO_TABLA_PDF = 1100; // ~30 filas, suficiente para casi cualquier tabla real
+async function esperarMs(ms) {
+  await new Promise(r => setTimeout(r, ms));
+}
+
+// las tablas tienen scroll interno (max-height) que recorta lo que no se ve — hay que
+// destaparlas para la captura, con un tope para que una tabla de cientos de filas no
+// vuelva la imagen gigante
+const ALTO_MAXIMO_TABLA_PDF = 1100; // ~30 filas
 function destaparTablas(el) {
-  const contenedores = el.querySelectorAll('.tabla-scroll');
+  const contenedores = el.querySelectorAll('.tabla-scroll, .altura-igualada'); // altura-igualada = lista de "Analistas más activos" en Resumen
   const originales = [];
   contenedores.forEach(c => {
     originales.push({ el: c, maxHeight: c.style.maxHeight, overflow: c.style.overflow });
@@ -299,22 +354,162 @@ function destaparTablas(el) {
 async function capturarElemento(el) {
   const restaurar = destaparTablas(el);
   try {
-    await esperarFrame(1);
+    await esperarFrame(2);
+    await esperarMs(350);
     return await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: '#FFFFFF' });
   } finally {
     restaurar();
   }
 }
 
-// Recorre las vistas del sidebar y captura cada una por separado, ya que solo una
-// está visible a la vez y los gráficos de las demás no tienen tamaño hasta mostrarlas.
+// la fuente de jsPDF no tiene flechas/símbolos especiales, salen vacíos o rotos
+function limpiarTextoParaPdf(s) {
+  return String(s ?? '')
+    .replace(/[–—]/g, '-')
+    .replace(/[•·]/g, '-')
+    .replace(/[▲▼►◄→←↑↓]/g, '')
+    .replace(/[^\x20-\x7EÀ-ÿ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// tablas como texto real en vez de screenshot: no salen borrosas y jsPDF-AutoTable
+// las pagina solo repitiendo el encabezado
+function extraerTablaDOM(scrollEl) {
+  const table = scrollEl.querySelector('table');
+  if (!table) return null;
+  const columnas = [...table.querySelectorAll('thead th')].map(th => limpiarTextoParaPdf(th.textContent));
+  const filas = [...table.querySelectorAll('tbody tr')].map(tr =>
+    [...tr.children].map(td => limpiarTextoParaPdf(td.textContent))
+  );
+  if (!filas.length) return null;
+  return { columnas, filas };
+}
+
+// las listas "Top 10" no son <table>, extraerTablaDOM no las agarra
+function extraerListaDOM(el) {
+  const filas = [...el.querySelectorAll('.mini-rank-row')].map(row => {
+    const num = row.querySelector('.mini-rank-num')?.textContent.trim() || '';
+    const spans = row.querySelectorAll(':scope > div span');
+    const nombre = spans[0]?.getAttribute('title') || spans[0]?.textContent || '';
+    const valor = spans[1]?.textContent || '';
+    return [num, limpiarTextoParaPdf(nombre), limpiarTextoParaPdf(valor)];
+  });
+  if (!filas.length) return null;
+  return { columnas: ['#', 'Nombre', 'Total'], filas };
+}
+
+// Resumen tiene varias tarjetas en fila (no una sola con secciones) por eso va aparte
+async function capturarResumen(viewEl) {
+  const bloques = [];
+  const cardsDirectos = [...viewEl.querySelectorAll(':scope > .sec-card')];
+  const filaListas = viewEl.querySelector(':scope > .grid');
+  const cardsListas = filaListas ? [...filaListas.querySelectorAll(':scope > .sec-card')] : [];
+
+  if (cardsDirectos[0]) bloques.push({ tipo: 'imagen', canvas: await capturarElemento(cardsDirectos[0]) });
+
+  for (const card of cardsListas) {
+    const header = card.querySelector('.sec-header');
+    const cuerpo = card.querySelector('.sec-body');
+    const datos = cuerpo ? extraerListaDOM(cuerpo) : null;
+    const tituloTexto = header?.querySelector('.sec-title-text')?.textContent.trim();
+
+    if (datos && tituloTexto) {
+      // título como texto nativo, no imagen: un header angosto (1 de 3 columnas) estirado
+      // al ancho de la página salía con el texto gigante
+      bloques.push({ tipo: 'tabla', titulo: tituloTexto, columnas: datos.columnas, filas: datos.filas });
+    } else {
+      bloques.push({ tipo: 'imagen', canvas: await capturarElemento(card) });
+    }
+  }
+
+  if (cardsDirectos[1]) bloques.push({ tipo: 'imagen', canvas: await capturarElemento(cardsDirectos[1]) });
+
+  return bloques;
+}
+
+// vistas de una tarjeta con secciones: cada sección va como imagen, excepto las
+// tablas largas (van como texto, ver extraerTablaDOM)
+async function capturarBloquesDeVista(viewEl) {
+  const cards = viewEl.querySelectorAll(':scope > .sec-card');
+  const card = cards[0];
+  const body = card?.querySelector(':scope > .sec-body.tablas-separadas');
+
+  // no tiene esa estructura (Resumen, Distribución, etc.) → una sola captura
+  if (cards.length !== 1 || !body) {
+    return [{ tipo: 'imagen', canvas: await capturarElemento(viewEl) }];
+  }
+
+  const hijos = [...body.children];
+  const bloques = [];
+  let grupoActual = [];
+  let headerCapturado = false;
+
+  const capturar = async (visibles, ocultarAdemas = []) => {
+    const ocultar = hijos.filter(h => !visibles.includes(h)).concat(ocultarAdemas);
+    ocultar.forEach(h => h.style.display = 'none');
+    const canvas = await capturarElemento(headerCapturado ? body : card);
+    ocultar.forEach(h => h.style.display = '');
+    headerCapturado = true;
+    return canvas;
+  };
+
+  const flushGrupo = async () => {
+    if (!grupoActual.length) return;
+    bloques.push({ tipo: 'imagen', canvas: await capturar(grupoActual) });
+    grupoActual = [];
+  };
+
+  for (const hijo of hijos) {
+    // Tablas marcadas para no salir en el informe (p. ej. rankings muy largos que
+    // no aportan de un vistazo y se ven mal paginados en varias hojas)
+    if (hijo.hasAttribute('data-pdf-excluir')) continue;
+
+    const scrollEl = hijo.querySelector('.tabla-scroll');
+    if (scrollEl) {
+      await flushGrupo();
+      // título/píldoras como imagen, la tabla se oculta y va aparte como texto
+      const canvasHeader = await capturar([hijo], [scrollEl]);
+      if (canvasHeader.height > 8) bloques.push({ tipo: 'imagen', canvas: canvasHeader });
+
+      const datos = extraerTablaDOM(scrollEl);
+      if (datos) bloques.push({ tipo: 'tabla', columnas: datos.columnas, filas: datos.filas });
+    } else {
+      grupoActual.push(hijo);
+    }
+  }
+  await flushGrupo();
+
+  return bloques;
+}
+
+// solo una vista está visible a la vez y los gráficos de las demás no tienen tamaño
+// hasta mostrarlas, así que hay que recorrerlas una por una
 async function capturarVistas() {
   const vistaOriginal = document.querySelector('.view.active')?.dataset.view;
   const bloques = [];
 
-  // Mientras se genera el informe no debe llegar un refresco del dashboard a mitad de una
-  // captura (cambiaría datos o destruiría un gráfico justo cuando se está fotografiando).
+  // evita que un refresco del dashboard llegue a mitad de una captura
   _generandoInforme = true;
+
+  // filtros/buscadores no tienen sentido en un PDF estático
+  document.body.classList.add('generando-informe');
+
+  // ancho fijo mientras se genera el informe: si la ventana está maximizada, la captura
+  // sale "ancha y delgada" y al comprimirla al ancho del PDF el texto queda chiquito/cortado
+  const appMain = document.querySelector('.app-main');
+  const anchoOriginal = appMain?.style.maxWidth;
+  if (appMain) {
+    appMain.style.maxWidth = '1120px';
+    appMain.style.margin = '0 auto';
+  }
+  // el reflow de ese cambio de ancho es grande, un par de frames no siempre alcanza
+  // para que el texto termine de pintarse antes de capturar
+  await esperarFrame(2);
+  await esperarMs(500);
+  Object.values(charts).forEach(c => { try { c.resize(); } catch (e) {} });
+  await esperarFrame(2);
+  await esperarMs(300);
 
   try {
 
@@ -322,7 +517,11 @@ async function capturarVistas() {
     if (kpiRow && kpiRow.children.length) {
       const canvas = await capturarElemento(kpiRow);
       if (canvas.width > 0 && canvas.height > 0) {
-        bloques.push({ titulo: 'Indicadores del período', canvas });
+        bloques.push({
+          titulo: 'Indicadores del período',
+          desc: 'Resumen general: total de tickets, activos, alta prioridad, escalados, analista destacado y tiempo promedio de resolución en 2WD.',
+          tipo: 'imagen', canvas, nuevaHoja: false,
+        });
       }
     }
 
@@ -332,10 +531,23 @@ async function capturarVistas() {
 
       mostrarVista(v.id);
       await esperarFrame(2);
-      Object.values(charts).forEach(c => { try { c.resize(); } catch (e) {} });
-      await esperarFrame(2);
+      await esperarMs(300);
+      // update() fuerza que Chart.js redibuje — un gráfico creado con display:none queda casi vacío si solo se hace resize()
+      Object.values(charts).forEach(c => { try { c.resize(); c.update('none'); } catch (e) {} });
+      await esperarFrame(3);
+      await esperarMs(300);
 
-      bloques.push({ titulo: v.label, canvas: await capturarElemento(el) });
+      const subBloques = v.id === 'vista-resumen'
+        ? await capturarResumen(el)
+        : await capturarBloquesDeVista(el);
+      subBloques.forEach((sb, i) => {
+        bloques.push({
+          titulo: i === 0 ? v.label : null,
+          desc: i === 0 ? v.desc : null,
+          nuevaHoja: i === 0,
+          ...sb,
+        });
+      });
     }
 
     if (vistaOriginal) {
@@ -345,14 +557,20 @@ async function capturarVistas() {
     }
 
   } finally {
+    document.body.classList.remove('generando-informe');
+    if (appMain) {
+      appMain.style.maxWidth = anchoOriginal || '';
+      appMain.style.margin = '';
+      await esperarFrame(2);
+      Object.values(charts).forEach(c => { try { c.resize(); } catch (e) {} });
+    }
     _generandoInforme = false;
   }
 
   return bloques;
 }
 
-// Arma el PDF: portada + un bloque por sección, con título de texto real (no parte de la
-// imagen) y sin cortar una tarjeta o gráfico a la mitad entre dos páginas cuando se puede evitar.
+// arma el PDF: portada + un bloque por sección, evitando cortar tarjetas/gráficos entre páginas
 async function generarPdfDashboard() {
 
   const bloques = await capturarVistas();
@@ -407,25 +625,61 @@ async function generarPdfDashboard() {
     y += 7;
   };
 
-  for (const b of bloques) {
-    const imgH = (b.canvas.height * anchoUtil) / b.canvas.width;
-    const imgData = b.canvas.toDataURL('image/jpeg', 0.94);
-    const altoDisponible = pdfH - margen - y;
+  // Explica en texto, debajo del título, qué métricas/gráficos/tablas trae esa sección
+  const dibujarDescripcion = (texto) => {
+    if (!texto) return;
+    pdf.setTextColor(107, 114, 128);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(8.5);
+    const lineas = pdf.splitTextToSize(texto, anchoUtil - 4);
+    lineas.forEach(linea => {
+      if (y > pdfH - margen - 8) nuevaPagina();
+      pdf.text(linea, margen + 4, y);
+      y += 4.2;
+    });
+    y += 3;
+  };
 
-    // Si la sección completa no cabe en lo que queda de página, empieza una nueva
-    // (evita cortar una tarjeta o un gráfico a la mitad). Solo si ni siquiera cabe
-    // en una página entera se corta en varias, como último recurso.
-    if (imgH > altoDisponible && imgH <= pdfH - margen * 2 - 10) {
+  for (const b of bloques) {
+    // cada vista arranca en su propia página, excepto el primer bloque (junto a la portada)
+    if (b.nuevaHoja) {
       nuevaPagina();
+    } else if (b.tipo === 'imagen') {
+      const imgH = (b.canvas.height * anchoUtil) / b.canvas.width;
+      const altoDisponible = pdfH - margen - y;
+      // si no cabe entera en lo que queda de página, salta a la siguiente (evita cortarla)
+      if (imgH > altoDisponible && imgH <= pdfH - margen * 2 - 10) {
+        nuevaPagina();
+      }
+    }
+    // las tablas no fuerzan salto aquí, autoTable pagina solo
+
+    if (b.titulo) dibujarTitulo(b.titulo);
+    dibujarDescripcion(b.desc);
+
+    if (b.tipo === 'tabla') {
+      pdf.autoTable({
+        head: [b.columnas],
+        body: b.filas,
+        startY: y,
+        margin: { left: margen, right: margen, bottom: margen },
+        styles: { fontSize: 7.5, cellPadding: 2.2, overflow: 'linebreak', textColor: [55, 65, 81] },
+        headStyles: { fillColor: [18, 43, 79], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        theme: 'striped',
+      });
+      y = pdf.lastAutoTable.finalY + 10;
+      continue;
     }
 
-    dibujarTitulo(b.titulo);
+    const imgH = (b.canvas.height * anchoUtil) / b.canvas.width;
+    const imgData = b.canvas.toDataURL('image/jpeg', 0.94);
 
     if (y + imgH <= pdfH - margen) {
       pdf.addImage(imgData, 'JPEG', margen, y, anchoUtil, imgH);
       y += imgH + 10;
     } else {
-      // Sección más alta que una página: se reparte en varias, empezando cada una arriba
+      // más alta que una página: se reparte en varias
       let restante = imgH, offset = 0;
       while (restante > 0) {
         const disponible = pdfH - margen - y;
@@ -596,7 +850,7 @@ async function cargarDashboard() {
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,
-           ultimos, eds, metEsc, escActivos, tiempos, antiguedad] =
+           ultimos, eds, metEsc, escActivos, antiguedad] =
       await Promise.all([
         fetch(`${API}/api/supervisor/kpis?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tickets-analista?${qs}`).then(r => r.json()),
@@ -605,36 +859,68 @@ async function cargarDashboard() {
         fetch(`${API}/api/supervisor/distribucion-tipo?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/distribucion-estatus?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/distribucion-prioridad?${qs}`).then(r => r.json()),
-        fetch(`${API}/api/supervisor/ultimos-tickets?${qs}`).then(r => r.json()),
+        fetch(`${API}/api/supervisor/ultimos-tickets?${qs}`).then(r => r.json()).catch(() => ({ tickets: [], filtrado: false })),
         fetch(`${API}/api/supervisor/ranking-eds?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/metricas-escalacion?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/escalados-activos?${qs}`).then(r => r.json()),
-        fetch(`${API}/api/supervisor/tiempos-respuesta?${qs}`).then(r => r.json()).catch(() => null),
         fetch(`${API}/api/supervisor/antiguedad-abiertos?${qs}`).then(r => r.json()).catch(() => null),
       ]);
 
-    renderKPIs(kpis, tiempos);
+    renderKPIs(kpis);
     renderChartAnalistas(porAnalista);
     renderChartCategorias(topCat);
     renderChartDias(porDia);
     renderChartTipos(distTipo);
     renderChartEstatus(distEstatus);
     renderChartPrioridad(distPrioridad);
-    renderTablaUltimos(ultimos);
+    renderTablaUltimos(ultimos.tickets || [], ultimos.filtrado);
     renderTablaEDS(eds);
     renderKPIsEscalacion(metEsc);
-    renderChartEscalacion('chart-esc-reciben', metEsc.reciben, '#7C3AED');
+    renderChartEscalacionTendencia(metEsc.porDia);
+    renderChartEscalacion('chart-esc-reciben', metEsc.reciben, '#6A1B9A');
     renderChartEscalacion('chart-esc-envian',  metEsc.envian,  '#E65100');
     renderTablaEscaladosActivos(escActivos);
-    renderTiempos(tiempos);
     renderAntiguedad(antiguedad);
     renderResumen({ kpis, metEsc, antiguedad, porDia, porAnalista });
+    cargarAuditoriaDiaria();
 
   } catch (e) {
     console.error('Error cargando dashboard:', e);
   } finally {
     spin.classList.add('hidden');
   }
+}
+
+async function cargarAuditoriaDiaria() {
+  const desde = document.getElementById('audit-desde')?.value || '';
+  const hasta = document.getElementById('audit-hasta')?.value || '';
+  let qs = `mes=${mesActual}&anio=${anioActual}`;
+  if (filtroAnalista)  qs += `&idAnalista=${filtroAnalista}`;
+  if (filtroGrupo > 0) qs += `&idGrupo=${filtroGrupo}`;
+  if (desde) qs += `&desde=${desde}`;
+  if (hasta) qs += `&hasta=${hasta}`;
+
+  try {
+    const d = await fetch(`${API}/api/supervisor/tiempos-diario?${qs}`).then(r => r.json());
+    renderAuditoriaDiaria(d);
+  } catch (e) {
+    console.error('Error cargando auditoría diaria:', e);
+  }
+
+  try {
+    const t = await fetch(`${API}/api/supervisor/tiempos-respuesta?${qs}`).then(r => r.json());
+    renderTiempos(t);
+  } catch (e) {
+    console.error('Error cargando tiempos de respuesta:', e);
+  }
+}
+
+function limpiarAuditoriaDiaria() {
+  const desdeEl = document.getElementById('audit-desde');
+  const hastaEl = document.getElementById('audit-hasta');
+  if (desdeEl) desdeEl.value = '';
+  if (hastaEl) hastaEl.value = '';
+  cargarAuditoriaDiaria();
 }
 
 const KPI_DEFS = [
@@ -664,29 +950,38 @@ const KPI_DEFS = [
     label: 'Analista Destacado', sub: 'más tickets del período'
   },
   {
-    id: 'kpi-tiempo-resolucion', color: '#00695C', bg: '#ECFDF5',
+    id: 'kpi-tiempo-2wd', color: '#00695C', bg: '#ECFDF5',
     icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
-    label: 'Tiempo Promedio 3CX', sub: 'de resolución'
+    label: 'Tiempo Promedio 2WD', sub: 'ciclo de vida del ticket'
   }
 ];
 
+function fmtDeltaMes(actual, anterior) {
+  if (anterior === null || anterior === undefined) return '';
+  if (anterior === 0) return actual > 0 ? ' · nuevo vs mes ant.' : '';
+  const pct = ((actual - anterior) / anterior) * 100;
+  const arrow = pct >= 0 ? '▲' : '▼';
+  const sign  = pct >= 0 ? '+' : '';
+  return ` · ${arrow} ${sign}${pct.toFixed(0)}% vs mes ant.`;
+}
+
 function renderKPIs(d, tiempos) {
-  const promEjec = tiempos?.kpis?.promEjec;
+  const cmp = d.comparativoMesAnterior;
   const valores = [
     d.totalTickets         ?? 0,
     d.ticketsActivos       ?? 0,
     d.ticketsAltaPrioridad ?? 0,
     d.ticketsEscalados     ?? 0,
     d.analistaTop ? d.analistaTop.nombre : '—',
-    promEjec != null ? fmtSeg(promEjec) : '—',
+    fmtMin(d.promResolucion2WD),
   ];
   const subs = [
-    `${d.totalTickets ?? 0} tickets registrados`,
-    `activos en el período`,
-    `prioridad alta`,
-    `tickets escalados`,
+    `${d.totalTickets ?? 0} tickets registrados${cmp ? fmtDeltaMes(d.totalTickets, cmp.totalTickets) : ''}`,
+    `activos en el período${cmp ? fmtDeltaMes(d.ticketsActivos, cmp.ticketsActivos) : ''}`,
+    `prioridad alta${cmp ? fmtDeltaMes(d.ticketsAltaPrioridad, cmp.ticketsAltaPrioridad) : ''}`,
+    `tickets escalados${cmp ? fmtDeltaMes(d.ticketsEscalados, cmp.ticketsEscalados) : ''}`,
     d.analistaTop ? `${d.analistaTop.total} tickets` : '',
-    'promedio de ejecución',
+    'de creación a cierre en 2WD',
   ];
 
   const row = document.getElementById('kpi-row');
@@ -989,25 +1284,28 @@ function renderAntiguedad(d) {
   const diasColor = (dias) => dias > 7 ? 'text-red-600 font-bold' : dias > 3 ? 'text-orange-500 font-semibold' : 'text-gray-600';
 
   tablaEl.innerHTML = `
-    <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
+    <table class="w-full rounded-xl overflow-hidden border border-gray-100" style="table-layout:fixed">
+      <colgroup>
+        <col style="width:4%"><col style="width:14%"><col style="width:18%"><col style="width:20%">
+        <col style="width:20%"><col style="width:14%"><col style="width:10%">
+      </colgroup>
       <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'EDS', 'Responsable', 'Estatus', 'Días abierto'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
         ${lista.map((t, i) => `
         <tr class="hover:bg-gray-50 transition">
           <td class="px-4 py-2.5 text-gray-600 font-mono">${i + 1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido || ''}">${t.casoAtendido || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS || ''}">${t.EDS || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-700 whitespace-nowrap">${t.responsable || '—'}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus || '—'}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${diasColor(t.dias)}">${t.dias} día${t.dias === 1 ? '' : 's'}</td>
+          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold truncate">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-800 truncate" title="${t.casoAtendido || ''}">${t.casoAtendido || '—'}</td>
+          <td class="px-4 py-2.5 text-gray-600 truncate" title="${t.EDS || ''}">${t.EDS || '—'}</td>
+          <td class="px-4 py-2.5 text-gray-700 truncate">${t.responsable || '—'}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-600 truncate">${t.estatus || '—'}</td>
+          <td class="px-4 py-2.5 text-xs truncate ${diasColor(t.dias)}">${t.dias} día${t.dias === 1 ? '' : 's'}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
 }
 
-// Cuenta cuántos de los tickets más antiguos (ya cargados en la tabla) tiene
-// cada responsable, ordenado de mayor a menor.
+// cuenta los tickets más antiguos por responsable, de mayor a menor
 function renderResumenPorResponsable(lista) {
   const el = document.getElementById('antiguedad-por-responsable');
   if (!el) return;
@@ -1045,11 +1343,20 @@ function tableHeader(cols) {
   return `<tr style="background:#122B4F">${cols.map(c => `<th class="px-4 py-3 text-left text-blue-200">${c}</th>`).join('')}</tr>`;
 }
 
-function renderTablaUltimos(data) {
+function renderTablaUltimos(data, filtrado) {
+  const titEl = document.getElementById('hist-titulo');
+  if (titEl) titEl.textContent = filtrado
+    ? `${data.length} ticket${data.length === 1 ? '' : 's'} encontrado${data.length === 1 ? '' : 's'}`
+    : 'Últimos 10 Tickets Registrados';
   const el = document.getElementById('tabla-ultimos');
   if (!data.length) { el.innerHTML = sinDatos(); return; }
   el.innerHTML = `
-    <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
+    <table class="w-full rounded-xl overflow-hidden border border-gray-100" style="table-layout:fixed">
+      <colgroup>
+        <col style="width:3%"><col style="width:9%"><col style="width:13%"><col style="width:11%">
+        <col style="width:12%"><col style="width:12%"><col style="width:10%"><col style="width:9%">
+        <col style="width:7%"><col style="width:14%">
+      </colgroup>
       <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'Responsable', 'EDS', 'Categoría', 'Tipo', 'Estatus', 'Prioridad', 'Registro'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
         ${data.map((t, i) => {
@@ -1057,15 +1364,15 @@ function renderTablaUltimos(data) {
           return `
         <tr class="hover:bg-gray-50 transition">
           <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-40 truncate" title="${t.casoAtendido||''}">${t.casoAtendido || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-700 whitespace-nowrap">${t.analista}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.EDS||''}">${t.EDS || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${t.categoria}">${t.categoria}</td>
-          <td class="px-4 py-2.5">${tipoBadge(t.tipoCaso)}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus || '—'}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad] || 'text-gray-600'}">${t.prioridad || '—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 text-xs whitespace-nowrap">${t.fechaRegistro || '—'}</td>
+          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold truncate">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-800 truncate" title="${t.casoAtendido||''}">${t.casoAtendido || '—'}</td>
+          <td class="px-4 py-2.5 text-gray-700 truncate">${t.analista}</td>
+          <td class="px-4 py-2.5 text-gray-600 truncate" title="${t.EDS||''}">${t.EDS || '—'}</td>
+          <td class="px-4 py-2.5 text-gray-600 truncate" title="${t.categoria}">${t.categoria}</td>
+          <td class="px-4 py-2.5 truncate">${tipoBadge(t.tipoCaso)}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-600 truncate">${t.estatus || '—'}</td>
+          <td class="px-4 py-2.5 text-xs truncate ${pCol[t.prioridad] || 'text-gray-600'}">${t.prioridad || '—'}</td>
+          <td class="px-4 py-2.5 text-gray-600 text-xs truncate">${t.fechaRegistro || '—'}</td>
         </tr>`;}).join('')}
       </tbody>
     </table>`;
@@ -1101,8 +1408,9 @@ function renderKPIsEscalacion(d) {
   const el = document.getElementById('kpi-escalacion');
   if (!el) return;
   const defs = [
-    { label: 'Total Escalados',   value: d.totalEscalados,   color: '#7C3AED', bg: '#F5F3FF', sub: 'en el período' },
-    { label: 'Escalados Activos', value: d.escaladosActivos, color: '#C41E3A', bg: '#FFF5F5', sub: 'sin cerrar' },
+    { label: 'Total Escalados',   value: d.totalEscalados,   color: '#6A1B9A', bg: '#FAF5FF', sub: 'en el período' },
+    { label: '% Escalados',       value: `${(d.porcentajeEscalados ?? 0).toFixed(1)}%`, color: '#C41E3A', bg: '#FFF5F5', sub: 'del total de tickets' },
+    { label: 'Escalados Activos', value: d.escaladosActivos, color: '#991B1B', bg: '#FEF2F2', sub: 'sin cerrar' },
     { label: 'Mayor receptor',    value: d.reciben?.[0]?.nombre || '—', color: '#1565C0', bg: '#EFF6FF', sub: d.reciben?.[0] ? `${d.reciben[0].total} escalaciones` : '' },
     { label: 'Mayor escalador',   value: d.envian?.[0]?.nombre  || '—', color: '#E65100', bg: '#FFF7ED', sub: d.envian?.[0]  ? `${d.envian[0].total} escalaciones`  : '' },
   ];
@@ -1114,6 +1422,42 @@ function renderKPIsEscalacion(d) {
         <div class="text-xs text-gray-600 mt-0.5">${k.sub}</div>
       </div>
     </div>`).join('');
+}
+
+function renderChartEscalacionTendencia(data) {
+  destroyChart('chart-esc-tendencia');
+  const el = document.getElementById('chart-esc-tendencia');
+  if (!el) return;
+
+  const labels = (data || []).map(r => {
+    const m = String(r.fecha).match(/(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}` : r.fecha;
+  });
+  const values = (data || []).map(r => Math.round(r.porcentaje * 10) / 10);
+
+  charts['chart-esc-tendencia'] = new Chart(el, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: '#C41E3A', borderWidth: 2,
+        backgroundColor: 'rgba(196,30,58,0.08)',
+        pointRadius: 0, pointHoverRadius: 4,
+        fill: true, tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y}% escalados` } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9 }, maxTicksLimit: 10 } },
+        y: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 10 }, callback: v => v + '%' }, beginAtZero: true }
+      }
+    },
+    plugins: [noDataPlugin()]
+  });
 }
 
 function renderChartEscalacion(canvasId, data, color) {
@@ -1145,21 +1489,26 @@ function renderTablaEscaladosActivos(data) {
   if (!data?.length) { el.innerHTML = sinDatos(); return; }
   const pCol = { 'Alta': 'text-red-600 font-bold', 'Media': 'text-orange-500 font-semibold', 'Baja': 'text-green-600' };
   el.innerHTML = `
-    <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
+    <table class="w-full rounded-xl overflow-hidden border border-gray-100" style="table-layout:fixed">
+      <colgroup>
+        <col style="width:3%"><col style="width:10%"><col style="width:15%"><col style="width:14%">
+        <col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:11%">
+        <col style="width:7%"><col style="width:7%">
+      </colgroup>
       <thead>${tableHeader(['#', 'Código Ticket 2WD', 'Caso', 'EDS', 'Creador', '→ Escalado a', 'Grupo', 'Estatus', 'Prioridad', 'Registro'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
         ${data.map((t, i) => `
         <tr class="hover:bg-purple-50 transition">
           <td class="px-4 py-2.5 text-gray-600 font-mono">${i+1}</td>
-          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">${t.codigo2wd || '—'}</td>
-          <td class="px-4 py-2.5 font-medium text-gray-800 max-w-36 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-600 max-w-24 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
-          <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${t.creador}</td>
-          <td class="px-4 py-2.5 text-purple-700 font-semibold whitespace-nowrap">${t.escaladoA}</td>
-          <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${t.grupo}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.estatus}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${pCol[t.prioridad]||'text-gray-600'}">${t.prioridad}</td>
-          <td class="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">${t.fechaRegistro}</td>
+          <td class="px-4 py-2.5 font-mono text-xs text-blue-700 font-semibold truncate">${t.codigo2wd || '—'}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-800 truncate" title="${t.casoAtendido||''}">${t.casoAtendido||'—'}</td>
+          <td class="px-4 py-2.5 text-gray-600 truncate" title="${t.EDS||''}">${t.EDS||'—'}</td>
+          <td class="px-4 py-2.5 text-gray-500 text-xs truncate">${t.creador}</td>
+          <td class="px-4 py-2.5 text-purple-700 font-semibold truncate">${t.escaladoA}</td>
+          <td class="px-4 py-2.5 text-gray-500 text-xs truncate">${t.grupo}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-600 truncate">${t.estatus}</td>
+          <td class="px-4 py-2.5 text-xs truncate ${pCol[t.prioridad]||'text-gray-600'}">${t.prioridad}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-600 truncate">${t.fechaRegistro}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
@@ -1178,6 +1527,16 @@ function fmtSeg(seg) {
   return `${m} min ${String(s).padStart(2, '0')} s`;
 }
 
+function fmtMin(min) {
+  if (min === null || min === undefined || isNaN(min)) return '—';
+  min = Math.round(min);
+  if (min < 60) return `${min} min`;
+  const horas = Math.floor(min / 60), restMin = min % 60;
+  if (horas < 24) return `${horas} h ${String(restMin).padStart(2, '0')} min`;
+  const dias = Math.floor(horas / 24), restHoras = horas % 24;
+  return `${dias} d ${restHoras} h`;
+}
+
 function escT(v) {
   return String(v ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
@@ -1190,7 +1549,7 @@ function renderTiempos(d) {
     kpiEl.innerHTML = `<p class="col-span-full text-center text-gray-600 text-sm py-6">
       No se pudieron cargar los tiempos de respuesta${d?.error ? ': ' + escT(d.error) : ''}.
       ¿Ya se ejecutó la migración de la base de datos?</p>`;
-    ['chart-t-analista', 'chart-t-tipo', 'chart-t-categoria', 'chart-t-prioridad', 'chart-t-estatus', 'chart-t-cobertura']
+    ['chart-t-analista', 'chart-t-scatter', 'chart-t-categoria']
       .forEach(destroyChart);
     document.getElementById('tabla-sin-ticket').innerHTML = '';
     return;
@@ -1208,9 +1567,17 @@ function renderTiempos(d) {
       sub: `${pct(k.promResp, k.promEjec)} de la ejecución` },
     { label: 'Sin respuesta (prom.)', value: fmtSeg(k.promSinResp), color: '#C41E3A', bg: '#FFF5F5',
       sub: `${pct(k.promSinResp, k.promEjec)} espera del cliente` },
-    { label: 'Casos con ticket 2WD', value: pct(k.conTicket, k.total), color: '#7C3AED', bg: '#F5F3FF',
+    { label: 'Casos con ticket 2WD', value: pct(k.conTicket, k.total), color: '#6A1B9A', bg: '#FAF5FF',
       sub: `${k.conTicket ?? 0} de ${k.total} vinculados` },
   ];
+
+  const porTipoMap = Object.fromEntries((d.porTipo || []).map(x => [x.nombre, x]));
+  const chat = porTipoMap['CHAT'], llamada = porTipoMap['LLAMADA'];
+  defs.push({
+    label: 'Chat vs Llamada', color: '#1565C0', bg: '#EFF6FF',
+    value: `${chat?.casos ?? 0} / ${llamada?.casos ?? 0}`,
+    sub: `prom. ${fmtSeg(chat?.promEjec)} chat · ${fmtSeg(llamada?.promEjec)} llamada`,
+  });
 
   kpiEl.innerHTML = defs.map(x => `
     <div class="card px-4 py-3 flex items-center gap-3" style="background:${x.bg};border-color:${x.color}20">
@@ -1222,12 +1589,84 @@ function renderTiempos(d) {
     </div>`).join('');
 
   renderChartTiempos('chart-t-analista',  d.porAnalista);
-  renderChartTiempos('chart-t-tipo',      d.porTipo.map(x => ({ ...x, nombre: x.nombre === 'LLAMADA' ? 'Llamada' : 'Chat' })));
+  renderChartTiemposScatter(d.porAnalista);
   renderChartTiempos('chart-t-categoria', d.porCategoria);
-  renderChartTiempos('chart-t-prioridad', d.porPrioridad);
-  renderChartTiempos('chart-t-estatus',   d.porEstatus);
-  renderChartCobertura(k);
   renderTablaSinTicket(d.sinTicket);
+}
+
+function renderAuditoriaDiaria(d) {
+  const el = document.getElementById('tabla-audit-diario');
+  const lista = d?.analistas || [];
+  const turnoSeg = (d?.turnoHoras || 6) * 3600;
+  const esUnSoloDia = !!d?.esUnSoloDia;
+
+  if (!lista.length) {
+    if (el) el.innerHTML = sinDatos();
+    renderChartAuditCobertura([], turnoSeg);
+    return;
+  }
+
+  const colTrabajando = esUnSoloDia ? 'Trabajando' : 'Trabajando (prom./día)';
+  const colEsperando  = esUnSoloDia ? 'Esperando cliente' : 'Esperando (prom./día)';
+
+  el.innerHTML = `
+    <table class="w-full rounded-xl overflow-hidden border border-gray-100" style="table-layout:fixed">
+      <colgroup>
+        <col style="width:4%"><col style="width:19%"><col style="width:9%"><col style="width:15%">
+        <col style="width:9%"><col style="width:16%"><col style="width:13%"><col style="width:9%"><col style="width:6%">
+      </colgroup>
+      <thead>${tableHeader(['#', 'Analista', 'Casos', colTrabajando, '% turno', colEsperando, 'Prom. por caso', 'Sin cerrar', 'Días'])}</thead>
+      <tbody class="bg-white divide-y divide-gray-100">
+        ${lista.map((a, i) => `
+        <tr class="hover:bg-gray-50 transition">
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i + 1}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-800 truncate">${escT(a.nombre)}</td>
+          <td class="px-4 py-2.5 text-gray-700">${a.casosAtendidos}</td>
+          <td class="px-4 py-2.5 font-semibold text-teal-700">${fmtSeg(a.trabajandoSeg)}</td>
+          <td class="px-4 py-2.5 font-semibold ${a.porcentajeTurno > 100 ? 'text-red-600' : a.porcentajeTurno < 40 ? 'text-orange-500' : 'text-gray-700'}">${Math.round(a.porcentajeTurno)}%</td>
+          <td class="px-4 py-2.5 text-gray-600">${fmtSeg(a.esperandoSeg)}</td>
+          <td class="px-4 py-2.5 text-gray-600">${fmtSeg(a.promEjecCaso)}</td>
+          <td class="px-4 py-2.5 ${a.casosAbiertos > 0 ? 'text-orange-600 font-semibold' : 'text-gray-500'}">${a.casosAbiertos}</td>
+          <td class="px-4 py-2.5 text-gray-500 text-xs">${a.diasConActividad}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  renderChartAuditCobertura(lista, turnoSeg);
+}
+
+function renderChartAuditCobertura(lista, turnoSeg = 6 * 3600) {
+  destroyChart('chart-audit-cobertura');
+  const el = document.getElementById('chart-audit-cobertura');
+  if (!el) return;
+  if (!lista.length) return;
+
+  const labels = lista.map(a => a.nombre);
+  const trabajandoMin = lista.map(a => Math.round(a.trabajandoSeg / 60));
+  const turnoMin = turnoSeg / 60;
+
+  charts['chart-audit-cobertura'] = new Chart(el, {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Trabajando', data: trabajandoMin, backgroundColor: '#00695C', borderRadius: 5, order: 2 },
+        { type: 'line', label: `Turno (${turnoSeg / 3600}h)`, data: labels.map(() => turnoMin),
+          borderColor: '#C41E3A', borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false, order: 1 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmtSeg(ctx.parsed.y * 60)}` } },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        y: { grid: { color: '#F3F4F6' }, ticks: { font: { size: 10 }, callback: v => `${(v / 60).toFixed(1)}h` }, beginAtZero: true }
+      }
+    },
+    plugins: [noDataPlugin()]
+  });
 }
 
 // Barras apiladas en minutos: con respuesta (verde) + sin respuesta (rojo) = ejecución promedio
@@ -1275,29 +1714,49 @@ function renderChartTiempos(id, data) {
   });
 }
 
-function renderChartCobertura(k) {
-  destroyChart('chart-t-cobertura');
-  const el = document.getElementById('chart-t-cobertura');
+function renderChartTiemposScatter(data) {
+  destroyChart('chart-t-scatter');
+  const el = document.getElementById('chart-t-scatter');
   if (!el) return;
+  if (!data?.length) return;
 
-  const enWD    = k.conTicketEn2WD ?? 0;
-  const soloRef = Math.max(0, (k.conTicket ?? 0) - enWD);
-  const sin     = Math.max(0, (k.total ?? 0) - (k.conTicket ?? 0));
+  const datasets = data.map((a, i) => ({
+    label: a.nombre,
+    data: [{ x: a.casos, y: Math.round((a.promEjec ?? 0) / 60), nombre: a.nombre }],
+    backgroundColor: PALETTE[i % PALETTE.length],
+    pointRadius: 6, pointHoverRadius: 8,
+  }));
 
-  charts['chart-t-cobertura'] = new Chart(el, {
-    type: 'doughnut',
-    data: {
-      labels: ['Vinculado (ticket en 2WD)', 'Vinculado (ticket aún no importado)', 'Sin ticket'],
-      datasets: [{ data: [enWD, soloRef, sin], backgroundColor: ['#1B5E20', '#F57F17', '#9CA3AF'],
-                   borderWidth: 2, borderColor: '#fff', hoverOffset: 8 }]
+  charts['chart-t-scatter'] = new Chart(el, {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10, usePointStyle: true } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.raw.nombre}: ${ctx.raw.x} casos, ${ctx.raw.y} min prom.` } },
+      },
+      scales: {
+        x: { title: { display: true, text: 'Casos resueltos', font: { size: 10 } }, grid: { color: '#F3F4F6' }, ticks: { font: { size: 10 } }, beginAtZero: true },
+        y: { title: { display: true, text: 'Tiempo promedio (min)', font: { size: 10 } }, grid: { color: '#F3F4F6' }, ticks: { font: { size: 10 } }, beginAtZero: true },
+      }
     },
-    options: makeDonutOptions('bottom'),
-    plugins: [noDataPlugin(), donutCenterPlugin('casos')]
+    plugins: [noDataPlugin()]
   });
 }
 
 function renderTablaSinTicket(data) {
   const el = document.getElementById('tabla-sin-ticket');
+
+  const tituloEl = document.getElementById('titulo-sin-ticket');
+  if (tituloEl) {
+    const desde = document.getElementById('audit-desde')?.value;
+    const hasta = document.getElementById('audit-hasta')?.value;
+    tituloEl.textContent = (desde || hasta)
+      ? 'Casos sin ticket vinculado (rango elegido)'
+      : 'Casos sin ticket vinculado (hoy)';
+  }
+
   if (!data?.length) {
     el.innerHTML = `<p class="text-center text-gray-600 text-sm py-8">Todos los casos del período tienen ticket vinculado</p>`;
     return;
@@ -1338,11 +1797,26 @@ function renderResumen({ kpis, metEsc, antiguedad, porDia, porAnalista }) {
   renderResumenTopLista('resumen-top-categorias', kpis?.topCategorias, 'nombre', '#6A1B9A');
   renderResumenTopLista('resumen-top-eds', kpis?.topEDS, 'EDS', '#E65100');
   const topAnalistas = (porAnalista || [])
-    .slice(0, 5)
-    .map(a => ({ nombre: a.nombre, total: a.tickets }));
+    .map(a => ({ nombre: a.nombre, total: a.tickets }))
+    .sort((a, b) => b.total - a.total);
   renderResumenTopLista('resumen-top-analistas', topAnalistas, 'nombre', '#1B5E20');
   renderResumenTendencia(porDia);
   renderResumenMasAntiguo(antiguedad);
+
+  // en la primera carga el layout aún no asienta, así que se mide más de una vez
+  const igualarAlturaAnalistas = () => {
+    const ref = document.getElementById('resumen-top-categorias');
+    const analistasEl = document.getElementById('resumen-top-analistas');
+    if (!ref || !analistasEl) return;
+    const alto = ref.getBoundingClientRect().height;
+    if (alto < 40) return; // la referencia todavía no tiene contenido real, reintentar luego
+    analistasEl.style.maxHeight = alto + 'px';
+    analistasEl.style.overflowY = 'auto';
+    analistasEl.classList.add('altura-igualada');
+  };
+  requestAnimationFrame(igualarAlturaAnalistas);
+  setTimeout(igualarAlturaAnalistas, 250);
+  setTimeout(igualarAlturaAnalistas, 800);
 }
 
 function renderResumenTopLista(elId, data, campoNombre, color) {

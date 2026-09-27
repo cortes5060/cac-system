@@ -1,5 +1,6 @@
 const { sql, pool } = require('../config/db');
 const bcrypt = require('bcryptjs');
+const { salirDeCola, entrarACola } = require('../services/colaAnalistas');
 
 const loginAnalista = async (req, res) => {
   try {
@@ -63,23 +64,23 @@ const cambiarEstado = async (req, res) => {
     const { activo } = req.body;
 
     const connection = await pool;
+    const diaHoy = new Date().getDay(); // 0=Domingo...6=Sábado, igual que diaSemana en HorariosDetalle
 
     const result = await connection.request()
       .input("id", sql.Int, id)
+      .input("dia", sql.Int, diaHoy)
       .query(`
-        SELECT 
-          CASE 
-          WHEN CAST(GETDATE() AS TIME) 
-              BETWEEN horaentrada AND horasalida
-              AND CAST(GETDATE() AS TIME) 
-              NOT BETWEEN horaalmuerzoinicio AND horaalmuerzofin
+        SELECT
+          CASE
+          WHEN d.HoraEntrada IS NULL THEN 1
+          WHEN CAST(GETDATE() AS TIME) BETWEEN d.HoraEntrada AND d.HoraSalida
+              AND (d.HoraAlmuerzoInicio IS NULL OR CAST(GETDATE() AS TIME) NOT BETWEEN d.HoraAlmuerzoInicio AND d.HoraAlmuerzoFin)
           THEN 0
           ELSE 1
           END AS puedeInactivarse
-          FROM horarios
-          WHERE id = (
-              SELECT idhorario FROM analistas WHERE id = @id 
-          )
+          FROM analistas a
+          LEFT JOIN HorariosDetalle d ON d.idHorario = a.idhorario AND d.diaSemana = @dia
+          WHERE a.id = @id
       `);
 
 
@@ -90,120 +91,17 @@ const cambiarEstado = async (req, res) => {
         });
     }
 
-    const resultado = await connection.request()
-      .input("id", sql.Int, id)
-      .query(`
-        SELECT 
-            id,
-            nombre,
-            orden,
-            activo
-        FROM analistas 
-        WHERE id = @id
-      `);
-
-    const analista = resultado.recordset[0];
+    const io = req.app.get("io");
 
     if (activo == 1) {
-
-      const casosHoyResult = await connection.request()
-        .input("id", sql.Int, id)
-        .query(`
-          SELECT COUNT(*) AS casos
-          FROM casos3cx
-          WHERE idAnalista = @id
-            AND CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
-        `);
-
-      const casosHoy = casosHoyResult.recordset[0].casos;
-
-      if (casosHoy === 0) {
-        const primerConCasosResult = await connection.request()
-          .query(`
-            SELECT ISNULL(MIN(a.orden), 0) AS primerConCasos
-            FROM analistas a
-            INNER JOIN (
-              SELECT DISTINCT idAnalista
-              FROM casos3cx
-              WHERE CAST(fecha AS DATE) = CAST(GETDATE() AS DATE)
-            ) c ON a.id = c.idAnalista
-            WHERE a.activo = 1
-          `);
-
-        const primerConCasos = primerConCasosResult.recordset[0].primerConCasos;
-
-        if (primerConCasos > 0) {
-          await connection.request()
-            .input("desde", sql.Int, primerConCasos)
-            .query(`
-              UPDATE analistas
-              SET orden = orden + 1
-              WHERE activo = 1 AND orden >= @desde
-            `);
-
-          await connection.request()
-            .input("id", sql.Int, id)
-            .input("nuevoOrden", sql.Int, primerConCasos)
-            .query(`
-              UPDATE analistas
-              SET activo = 1, orden = @nuevoOrden
-              WHERE id = @id
-            `);
-        } else {
-          const maxOrdenResult = await connection.request()
-            .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
-
-          await connection.request()
-            .input("id", sql.Int, id)
-            .input("nuevoOrden", sql.Int, maxOrdenResult.recordset[0].maxOrden + 1)
-            .query(`
-              UPDATE analistas
-              SET activo = 1, orden = @nuevoOrden
-              WHERE id = @id
-            `);
-        }
-      } else {
-        const maxOrdenResult = await connection.request()
-          .query(`SELECT ISNULL(MAX(orden), 0) AS maxOrden FROM analistas WHERE activo = 1`);
-
-        await connection.request()
-          .input("id", sql.Int, id)
-          .input("nuevoOrden", sql.Int, maxOrdenResult.recordset[0].maxOrden + 1)
-          .query(`
-            UPDATE analistas
-            SET activo = 1, orden = @nuevoOrden
-            WHERE id = @id
-          `);
-      }
-
-      const io = req.app.get("io");
-      io.emit("analistaActualizado", { id, activo });
-      res.json({ ok: true });
-
+      await entrarACola(connection, id);
     } else {
-
-      await connection.request()
-        .input("id", sql.Int, id)
-        .query(`
-          UPDATE analistas
-          SET activo = 0,
-              orden = 0
-          WHERE id = @id
-        `);
-
-      await connection.request()
-        .input("orden", sql.Int, analista.orden)
-        .query(`
-          UPDATE analistas
-          SET orden = orden - 1
-          WHERE activo = 1
-          AND orden > @orden
-        `);
-
-      const io = req.app.get("io");
-      io.emit("analistaActualizado", { id, activo });
-      res.json({ ok: true });
+      const { casosPasadosANoResponde } = await salirDeCola(connection, id);
+      if (casosPasadosANoResponde.length) io.emit("casosActualizados");
     }
+
+    io.emit("analistaActualizado", { id, activo });
+    res.json({ ok: true });
 
   } catch (error) {
 

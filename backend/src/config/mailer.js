@@ -1,6 +1,5 @@
 const nodemailer = require('nodemailer');
 
-// Ver .env.example para la configuración de MAIL_PROVIDER/MAIL_USER/MAIL_PASS
 const provider = (process.env.MAIL_PROVIDER || 'office365').toLowerCase();
 
 const transportConfig = provider === 'gmail'
@@ -8,7 +7,7 @@ const transportConfig = provider === 'gmail'
   : {
       host: 'smtp.office365.com',
       port: 587,
-      secure: false,        // STARTTLS
+      secure: false,     
       requireTLS: true,
       auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS },
     };

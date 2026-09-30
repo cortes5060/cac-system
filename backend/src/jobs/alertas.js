@@ -120,6 +120,26 @@ async function checkAnalistasAusentes(connection, io) {
 
 // Casos 3CX (chats/llamadas) que un analista tiene en ACTIVO al mismo tiempo,
 // acumulados sin cerrar por mucho tiempo — señal de que se está quedando atrás en la cola.
+// Caso 3CX que quedó sin cerrar de un día anterior (no FINALIZADO) — se arrastra al día
+// siguiente sin que nadie lo haya cerrado formalmente.
+async function checkCasosDiasAnteriores(connection, io) {
+  const r = await connection.request().query(`
+    SELECT c.id, a.nombre, CAST(c.fecha AS DATE) AS fecha
+    FROM casos3cx c
+    JOIN analistas a ON a.id = c.idAnalista
+    WHERE CAST(c.fecha AS DATE) < CAST(GETDATE() AS DATE)
+      AND (SELECT TOP 1 e.estado FROM casos3cx_estados e WHERE e.idCaso = c.id ORDER BY e.id DESC) <> 'FINALIZADO'
+  `);
+
+  for (const row of r.recordset) {
+    const mensaje = `Caso 3CX #${row.id} de ${row.nombre} sigue abierto desde el ${new Date(row.fecha).toLocaleDateString('es-CO')}`;
+    await insertarSiNueva(connection, 'CASO_DIA_ANTERIOR', row.id, mensaje);
+  }
+  if (r.recordset.length) io.emit('nuevaAlerta');
+
+  await resolverExcepto(connection, 'CASO_DIA_ANTERIOR', r.recordset.map(x => x.id));
+}
+
 async function checkCasosAcumulados(connection, io) {
   const r = await connection.request()
     .input('horas', sql.Int, UMBRAL_CASOS_ACUMULADOS_HORAS)
@@ -152,6 +172,7 @@ async function chequearAlertas(io) {
     await checkDesconexionesPendientes(connection, io);
     await checkAnalistasAusentes(connection, io);
     await checkCasosAcumulados(connection, io);
+    await checkCasosDiasAnteriores(connection, io);
   } catch (error) {
     console.error('Error revisando alertas:', error.message);
   } finally {

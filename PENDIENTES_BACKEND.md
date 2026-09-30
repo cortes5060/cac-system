@@ -150,3 +150,26 @@ muestra tendencia diaria pero de cantidad de tickets, no de tiempo).
 el usuario) — hacer primero los puntos 1 al 6.
 
 ---
+
+## 8. Import de Excel (confirmarImport) es fila por fila, muy lento con archivos grandes
+
+**Dónde:** `backend/src/controllers/import.controller.js`, función `confirmarImport`.
+
+**✅ Resuelto en código, falta desplegar.** El bucle principal de filas (INSERT/UPDATE de
+`tickets`) ya no es secuencial: se agregó un helper `conPool(items, limite, fn)` que
+corre hasta 5 filas en simultáneo en vez de una por una (`CONCURRENCIA_FILAS = 5`,
+elegido a propósito por debajo del máximo de conexiones del pool de SQL Server, para no
+acaparar la base de datos mientras el resto del sistema la sigue usando durante el
+import). Los contadores (`insertados`, `actualizados`, `errores`) siguen siendo seguros
+porque JS es de un solo hilo: los `await` dentro de cada tarea son los únicos puntos de
+intercalado real.
+
+Los bucles de catálogos nuevos (estatus, categorías, tipos, grupos, analistas) se
+dejaron secuenciales a propósito — son sobre un `Set` de nombres únicos, normalmente
+pocos valores distintos por Excel, así que no valía la pena el riesgo/complejidad extra.
+
+**Probado localmente** (servidor local + backend en local), pendiente de correr contra
+un Excel grande en producción para confirmar la mejora real de tiempo antes de darlo por
+cerrado del todo.
+
+---

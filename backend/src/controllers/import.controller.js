@@ -37,6 +37,21 @@ function toDate(val) {
 
 const fmtDateTime = d => d ? d.toISOString().replace('T', ' ').slice(0, 19) : null;
 
+// Corre `fn` sobre `items` con como máximo `limite` llamadas en vuelo al mismo tiempo,
+// en vez de una por una — cada llamada sigue siendo una consulta SQL separada (nada de
+// batch real), pero varias viajan al servidor en simultáneo, así que el tiempo total baja
+// casi proporcional al límite sin arriesgar la corrección de un INSERT/UPDATE por lotes.
+async function conPool(items, limite, fn) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limite, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+}
+
 async function cargarCatalogos(db) {
   const [a, c, t, e, p, g, s] = await Promise.all([
     db.request().query(`SELECT id, nombre, idGrupoColaborador FROM analistas WHERE idRol = 1`),
@@ -406,11 +421,14 @@ const confirmarImport = async (req, res) => {
       }
     }
 
-    for (const f of filas) {
-      if (f.accion === 'omitir') continue;
-      if (f.estado === 'error') continue;
-      if (f.estado === 'advertencia' && !incluirAdvertencias) continue;
+    const filasAProcesar = filas.filter(f =>
+      f.accion !== 'omitir' && f.estado !== 'error' && !(f.estado === 'advertencia' && !incluirAdvertencias)
+    );
 
+    // Limitado a propósito (no al máximo de conexiones del pool) para no acaparar la
+    // base de datos mientras el resto del sistema sigue en uso durante el import.
+    const CONCURRENCIA_FILAS = 5;
+    await conPool(filasAProcesar, CONCURRENCIA_FILAS, async (f) => {
       try {
         if (f.accion === 'insertar') {
           const idCategoria        = f.idCategoria        ?? (f.categoriaNueva ? categoriasNuevasMap.get(f.categoriaNueva) : null) ?? null;
@@ -488,7 +506,7 @@ const confirmarImport = async (req, res) => {
       } catch (e) {
         errores.push(`Fila ${f.fila}: ${e.message}`);
       }
-    }
+    });
 
     const io = req.app.get('io');
     io.emit('ticketsActualizados');

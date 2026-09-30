@@ -21,6 +21,25 @@ function reproducirSonidoAlerta() {
     sonidoAlerta.play().catch(err => console.warn('No se pudo reproducir el sonido de alerta:', err));
 }
 
+// Recordatorio: mientras el analista siga de primero en la cola de chats (y no sea
+// el único activo, porque ahí no hay "turno" que anunciar), repite el mismo sonido
+// cada 10 min para que no se le pase tomar el caso. Se revisa cada vez que se
+// recarga la lista de activos (cambia con cada evento de cola).
+const RECORDATORIO_TURNO_MS = 10 * 60 * 1000;
+let timerRecordatorioTurno = null;
+
+function actualizarRecordatorioTurno(activosOrdenados) {
+    const primero = activosOrdenados[0];
+    const meToca = !!primero && primero.id == idActual && activosOrdenados.length > 1;
+
+    if (meToca && !timerRecordatorioTurno) {
+        timerRecordatorioTurno = setInterval(reproducirSonidoAlerta, RECORDATORIO_TURNO_MS);
+    } else if (!meToca && timerRecordatorioTurno) {
+        clearInterval(timerRecordatorioTurno);
+        timerRecordatorioTurno = null;
+    }
+}
+
 function reproducirSonidoActivar() {
     sonidoActivar.currentTime = 0;
     sonidoActivar.play().catch(err => console.warn('No se pudo reproducir el sonido de activación:', err));
@@ -75,14 +94,21 @@ socket.on("casosActualizados", () => {
     if (document.getElementById("tablaMisCasos")) cargarMisCasos();
 });
 
-socket.on("nuevoCaso3CX", (caso) => {
+socket.on("nuevoCaso3CX", async (caso) => {
     console.log("Nuevo caso:", caso);
     refrescarTablasCasos(caso);
     cargarAnalistasActivos();
     cargarAnalistaSeleccionado();
 
-    if (caso.idAnalista == idActual) {
-        reproducirSonidoAlerta();
+    // Solo los chats mueven la cola (quien lo toma pasa al final) — hay que
+    // avisarle al que queda de primero ahora, no a quien acaba de tomar el caso.
+    if (caso.tipo === "CHAT") {
+        try {
+            const r = await fetch(`${API}/api/analistas`);
+            const analistas = await r.json();
+            const primero = analistas.filter(a => a.activo == 1).sort((a, b) => a.orden - b.orden)[0];
+            if (primero && primero.id == idActual) reproducirSonidoAlerta();
+        } catch (e) {}
     }
 
     const input = document.getElementById("numeroChat");
@@ -312,6 +338,8 @@ async function cargarAnalistasActivos() {
             contenedor.appendChild(div);
         });
 
+        actualizarRecordatorioTurno(activosOrdenados);
+
     } catch (error) {
         console.error(error.message);
     }
@@ -475,6 +503,18 @@ function etiquetaTraspaso(c) {
     return `<div class="text-xs mt-1" style="color:#B45309">↪ Pasado a ${escapeHtml(c.titular)}</div>`;
 }
 
+function _mcAplicarFiltro() {
+    renderMisCasos();
+}
+
+function _mcLimpiarFiltro() {
+    const e = document.getElementById("mc_filtro_estado");
+    const t = document.getElementById("mc_filtro_tipo");
+    if (e) e.value = "";
+    if (t) t.value = "";
+    renderMisCasos();
+}
+
 function renderMisCasos() {
 
     const cont = document.getElementById("tablaMisCasos");
@@ -485,7 +525,22 @@ function renderMisCasos() {
         return;
     }
 
-    const filas = misCasos.map(c => {
+    const filtroEstado = document.getElementById("mc_filtro_estado")?.value || "";
+    const filtroTipo   = document.getElementById("mc_filtro_tipo")?.value || "";
+
+    const misCasosFiltrados = misCasos.filter(c => {
+        if (filtroEstado === "abierto" && c.estado === "FINALIZADO") return false;
+        if (filtroEstado === "cerrado" && c.estado !== "FINALIZADO") return false;
+        if (filtroTipo && c.tipo !== filtroTipo) return false;
+        return true;
+    });
+
+    if (!misCasosFiltrados.length) {
+        cont.innerHTML = "<p>Sin casos con ese filtro.</p>";
+        return;
+    }
+
+    const filas = misCasosFiltrados.map(c => {
 
         const cerrado = c.estado === "FINALIZADO";
         const titular = esMio(c);
@@ -1304,12 +1359,37 @@ async function mostrarModulo(tipo) {
             </div>
 
             <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-5">
+                <div class="flex items-center gap-2 mb-4">
                     <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
                     <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Mis casos de hoy</h2>
                     <button id="btnDesconexion" onclick="onClickDesconexion()"
                         class="ml-auto text-xs font-semibold px-3 py-1.5 rounded-lg border border-orange-300 text-orange-700 bg-orange-50 hover:bg-orange-100 transition">
                         Desconexión supervisada
+                    </button>
+                </div>
+                <div class="flex flex-wrap items-end gap-3 mb-4 bg-gray-50 border border-gray-200 rounded-2xl p-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Estado</label>
+                        <select id="mc_filtro_estado" onchange="_mcAplicarFiltro()"
+                            class="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition">
+                            <option value="" hidden>Estado</option>
+                            <option value="abierto">Abiertos</option>
+                            <option value="cerrado">Cerrados</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Tipo</label>
+                        <select id="mc_filtro_tipo" onchange="_mcAplicarFiltro()"
+                            class="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition">
+                            <option value="" hidden>Tipo</option>
+                            <option value="CHAT">Solo chats</option>
+                            <option value="LLAMADA">Solo llamadas</option>
+                        </select>
+                    </div>
+                    <button onclick="_mcLimpiarFiltro()"
+                        class="text-xs font-semibold text-gray-500 hover:text-gray-700 hover:bg-gray-100 border border-gray-200 bg-white rounded-xl px-3 transition"
+                        style="padding-top:8px;padding-bottom:8px">
+                        Limpiar
                     </button>
                 </div>
                 <div id="tablaMisCasos" class="text-gray-600 text-sm">Cargando...</div>
@@ -1391,7 +1471,7 @@ async function mostrarModulo(tipo) {
             <div class="fade-in">
                 <div class="flex items-center gap-2 mb-5">
                     <div class="w-1 h-5 rounded-full" style="background:#1565C0"></div>
-                    <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Últimos 10 casos 3CX</h2>
+                    <h2 class="text-base font-bold text-gray-700 tracking-wide uppercase">Últimos casos 3CX</h2>
                 </div>
                 <div id="tablaUlt10" class="text-gray-600 text-sm">Cargando...</div>
             </div>

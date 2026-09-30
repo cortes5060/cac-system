@@ -294,6 +294,18 @@ const getEDS = async (req, res) => {
   }
 };
 
+// Nombres de EDS realmente vistos en los tickets de 2WD (no el catálogo interno de
+// "estaciones") — para el filtro de Buscar Casos, que cruza contra el ticket vinculado.
+const getEDSDeTickets = async (req, res) => {
+  try {
+    const result = await (await pool).request()
+      .query(`SELECT DISTINCT EDS AS nombre FROM tickets WHERE EDS IS NOT NULL AND EDS <> '' ORDER BY EDS`);
+    res.json(result.recordset);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const crearEDS = async (req, res) => {
   try {
     const { nombre, NIT, direccion } = req.body;
@@ -479,7 +491,7 @@ const asignarHorario = async (req, res) => {
 
 const buscarCasos = async (req, res) => {
   try {
-    const { numero, nombreeds, fechaini, fechafin } = req.query;
+    const { numero, ticketNumero, nombreeds, fechaini, fechafin, tipo, idAnalista, estado, conTicket, idCategoria } = req.query;
     const connection = await pool;
     const request = connection.request();
 
@@ -489,9 +501,13 @@ const buscarCasos = async (req, res) => {
       request.input('numero', sql.NVarChar, `%${numero}%`);
       where += ' AND CAST(c.numerochat AS NVARCHAR) LIKE @numero';
     }
+    if (ticketNumero) {
+      request.input('ticketNumero', sql.NVarChar, `%${ticketNumero}%`);
+      where += ' AND c.ticketReferencia2WD LIKE @ticketNumero';
+    }
     if (nombreeds) {
       request.input('nombreeds', sql.NVarChar, `%${nombreeds}%`);
-      where += ' AND c.nombreEDS LIKE @nombreeds';
+      where += ' AND (c.nombreEDS LIKE @nombreeds OR t.EDS LIKE @nombreeds)';
     }
     if (fechaini) {
       request.input('fechaini', sql.Date, fechaini);
@@ -501,11 +517,43 @@ const buscarCasos = async (req, res) => {
       request.input('fechafin', sql.Date, fechafin);
       where += ' AND CAST(c.fecha AS DATE) <= @fechafin';
     }
+    if (tipo === 'CHAT' || tipo === 'LLAMADA') {
+      request.input('tipo', sql.VarChar(10), tipo);
+      where += ' AND c.tipo = @tipo';
+    }
+    if (idAnalista) {
+      request.input('idAnalista', sql.Int, parseInt(idAnalista));
+      where += ' AND c.idAnalista = @idAnalista';
+    }
+    if (idCategoria) {
+      request.input('idCategoria', sql.Int, parseInt(idCategoria));
+      where += ' AND t.idCategoria = @idCategoria';
+    }
+    if (conTicket === 'si') where += ' AND c.ticketReferencia2WD IS NOT NULL';
+    else if (conTicket === 'no') where += ' AND c.ticketReferencia2WD IS NULL';
+
+    if (estado === 'ACTIVO' || estado === 'INACTIVO' || estado === 'FINALIZADO') {
+      request.input('estado', sql.VarChar(12), estado);
+      where += ` AND (SELECT TOP 1 e.estado FROM casos3cx_estados e WHERE e.idCaso = c.id ORDER BY e.id DESC) = @estado`;
+    }
 
     const result = await request.query(`
-      SELECT TOP 100 c.id, c.numerochat, c.nombreEDS, c.fecha, a.nombre
+      SELECT TOP 500
+        c.id, c.numerochat, c.tipo, c.nombreEDS, c.fecha,
+        a.id AS idAnalista, a.nombre,
+        c.ticketReferencia2WD, t.EDS AS ticketEDS, ct.nombre AS categoria,
+        (SELECT TOP 1 e.estado FROM casos3cx_estados e WHERE e.idCaso = c.id ORDER BY e.id DESC) AS estado,
+        ISNULL(s.segAct, 0) + ISNULL(s.segIna, 0) AS segEjec
       FROM casos3cx c
       JOIN analistas a ON c.idAnalista = a.id
+      LEFT JOIN tickets t ON t.codigo2wd = c.ticketReferencia2WD
+      LEFT JOIN categorias ct ON ct.id = t.idCategoria
+      OUTER APPLY (
+        SELECT
+          SUM(CASE WHEN e2.estado = 'ACTIVO'   THEN DATEDIFF(SECOND, e2.inicio, ISNULL(e2.fin, GETDATE())) ELSE 0 END) AS segAct,
+          SUM(CASE WHEN e2.estado = 'INACTIVO' THEN DATEDIFF(SECOND, e2.inicio, ISNULL(e2.fin, GETDATE())) ELSE 0 END) AS segIna
+        FROM casos3cx_estados e2 WHERE e2.idCaso = c.id
+      ) s
       ${where}
       ORDER BY c.fecha DESC
     `);
@@ -548,7 +596,7 @@ module.exports = {
   login,
   getAnalistas, getTodosLosAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden, asignarPasswordAnalista,
   getCategorias, crearCategoria, toggleCategoria,
-  getEDS, crearEDS, toggleEDS,
+  getEDS, crearEDS, toggleEDS, getEDSDeTickets,
   getHorarios, getAnalistasHorarios, asignarHorario, crearHorario, actualizarHorario, eliminarHorario,
   getGruposColaborador, crearGrupoColaborador, asignarGrupoAnalista,
   getAlertas, resolverAlerta,

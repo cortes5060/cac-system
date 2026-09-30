@@ -850,7 +850,7 @@ async function cargarDashboard() {
     if (filtroGrupo > 0)  qs += `&idGrupo=${filtroGrupo}`;
 
     const [kpis, porAnalista, topCat, porDia, distTipo, distEstatus, distPrioridad,
-           ultimos, eds, metEsc, escActivos, antiguedad] =
+           ultimos, eds, metEsc, escActivos, antiguedad, casosPorMes] =
       await Promise.all([
         fetch(`${API}/api/supervisor/kpis?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/tickets-analista?${qs}`).then(r => r.json()),
@@ -864,6 +864,7 @@ async function cargarDashboard() {
         fetch(`${API}/api/supervisor/metricas-escalacion?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/escalados-activos?${qs}`).then(r => r.json()),
         fetch(`${API}/api/supervisor/antiguedad-abiertos?${qs}`).then(r => r.json()).catch(() => null),
+        fetch(`${API}/api/supervisor/casos-por-mes?${qs}`).then(r => r.json()).catch(() => null),
       ]);
 
     renderKPIs(kpis);
@@ -882,6 +883,7 @@ async function cargarDashboard() {
     renderTablaEscaladosActivos(escActivos);
     renderAntiguedad(antiguedad);
     renderResumen({ kpis, metEsc, antiguedad, porDia, porAnalista });
+    renderChartCasosMes(casosPorMes);
     cargarAuditoriaDiaria();
 
   } catch (e) {
@@ -900,6 +902,14 @@ async function cargarAuditoriaDiaria() {
   if (desde) qs += `&desde=${desde}`;
   if (hasta) qs += `&hasta=${hasta}`;
 
+  const tipoCaso   = document.getElementById('ct-tipo')?.value || '';
+  const conTicket  = document.getElementById('ct-ticket')?.value || '';
+  const estadoCaso = document.getElementById('ct-estado')?.value || '';
+  let qsTabla = qs;
+  if (tipoCaso)   qsTabla += `&tipoCaso=${tipoCaso}`;
+  if (conTicket)  qsTabla += `&conTicket=${conTicket}`;
+  if (estadoCaso) qsTabla += `&estadoCaso=${estadoCaso}`;
+
   try {
     const d = await fetch(`${API}/api/supervisor/tiempos-diario?${qs}`).then(r => r.json());
     renderAuditoriaDiaria(d);
@@ -908,7 +918,7 @@ async function cargarAuditoriaDiaria() {
   }
 
   try {
-    const t = await fetch(`${API}/api/supervisor/tiempos-respuesta?${qs}`).then(r => r.json());
+    const t = await fetch(`${API}/api/supervisor/tiempos-respuesta?${qsTabla}`).then(r => r.json());
     renderTiempos(t);
   } catch (e) {
     console.error('Error cargando tiempos de respuesta:', e);
@@ -1549,7 +1559,7 @@ function renderTiempos(d) {
     kpiEl.innerHTML = `<p class="col-span-full text-center text-gray-600 text-sm py-6">
       No se pudieron cargar los tiempos de respuesta${d?.error ? ': ' + escT(d.error) : ''}.
       ¿Ya se ejecutó la migración de la base de datos?</p>`;
-    ['chart-t-analista', 'chart-t-scatter', 'chart-t-categoria']
+    ['chart-t-analista', 'chart-t-scatter']
       .forEach(destroyChart);
     document.getElementById('tabla-sin-ticket').innerHTML = '';
     return;
@@ -1590,8 +1600,45 @@ function renderTiempos(d) {
 
   renderChartTiempos('chart-t-analista',  d.porAnalista);
   renderChartTiemposScatter(d.porAnalista);
-  renderChartTiempos('chart-t-categoria', d.porCategoria);
-  renderTablaSinTicket(d.sinTicket);
+  renderTablaCategoriaVolumen(d.porCategoria);
+  renderTablaSinTicket(d.casosTabla);
+}
+
+// Top 10 categorías con el tiempo promedio por caso más alto — para ver en qué
+// categoría se demora más cada caso individual, no el total acumulado del equipo.
+function renderTablaCategoriaVolumen(porCategoria) {
+  const el = document.getElementById('tabla-categoria-volumen');
+  if (!el) return;
+  const lista = (porCategoria || [])
+    .filter(c => c.casos > 0)
+    .slice()
+    .sort((a, b) => (b.promEjec ?? 0) - (a.promEjec ?? 0))
+    .slice(0, 10);
+
+  if (!lista.length) { el.innerHTML = sinDatos(); return; }
+
+  const maxProm = Math.max(...lista.map(c => c.promEjec ?? 0), 1);
+
+  el.innerHTML = `
+    <table class="w-full rounded-xl overflow-hidden border border-gray-100">
+      <thead>${tableHeader(['#', 'Categoría', 'Casos', 'Tiempo promedio por caso'])}</thead>
+      <tbody class="bg-white divide-y divide-gray-100">
+        ${lista.map((c, i) => `
+        <tr class="hover:bg-gray-50 transition">
+          <td class="px-4 py-2.5 text-gray-600 font-mono">${i + 1}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-800 truncate">${escT(c.nombre)}</td>
+          <td class="px-4 py-2.5 text-gray-700">${c.casos}</td>
+          <td class="px-4 py-2.5">
+            <div class="flex items-center gap-2">
+              <div class="flex-1 rounded-full bg-gray-100 overflow-hidden" style="max-width:120px;height:8px">
+                <div class="rounded-full" style="width:${Math.max(4, (c.promEjec ?? 0) / maxProm * 100)}%;height:100%;background:#6A1B9A"></div>
+              </div>
+              <span class="font-semibold text-gray-700 text-xs">${fmtSeg(c.promEjec)}</span>
+            </div>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
 function renderAuditoriaDiaria(d) {
@@ -1600,22 +1647,24 @@ function renderAuditoriaDiaria(d) {
   const turnoSeg = (d?.turnoHoras || 6) * 3600;
   const esUnSoloDia = !!d?.esUnSoloDia;
 
+  renderPicoEquipo(d?.picoEquipo);
+
   if (!lista.length) {
     if (el) el.innerHTML = sinDatos();
     renderChartAuditCobertura([], turnoSeg);
     return;
   }
 
-  const colTrabajando = esUnSoloDia ? 'Trabajando' : 'Trabajando (prom./día)';
+  const colTrabajando = esUnSoloDia ? 'Tiempo en atención' : 'Tiempo en atención (prom./día)';
   const colEsperando  = esUnSoloDia ? 'Esperando cliente' : 'Esperando (prom./día)';
 
   el.innerHTML = `
     <table class="w-full rounded-xl overflow-hidden border border-gray-100" style="table-layout:fixed">
       <colgroup>
-        <col style="width:4%"><col style="width:19%"><col style="width:9%"><col style="width:15%">
-        <col style="width:9%"><col style="width:16%"><col style="width:13%"><col style="width:9%"><col style="width:6%">
+        <col style="width:4%"><col style="width:16%"><col style="width:8%"><col style="width:13%">
+        <col style="width:8%"><col style="width:14%"><col style="width:11%"><col style="width:8%"><col style="width:9%"><col style="width:5%">
       </colgroup>
-      <thead>${tableHeader(['#', 'Analista', 'Casos', colTrabajando, '% turno', colEsperando, 'Prom. por caso', 'Sin cerrar', 'Días'])}</thead>
+      <thead>${tableHeader(['#', 'Analista', 'Casos', colTrabajando, '% turno', colEsperando, 'Prom. por caso', 'Sin cerrar', 'Pico simult.', 'Días'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
         ${lista.map((a, i) => `
         <tr class="hover:bg-gray-50 transition">
@@ -1627,12 +1676,33 @@ function renderAuditoriaDiaria(d) {
           <td class="px-4 py-2.5 text-gray-600">${fmtSeg(a.esperandoSeg)}</td>
           <td class="px-4 py-2.5 text-gray-600">${fmtSeg(a.promEjecCaso)}</td>
           <td class="px-4 py-2.5 ${a.casosAbiertos > 0 ? 'text-orange-600 font-semibold' : 'text-gray-500'}">${a.casosAbiertos}</td>
+          <td class="px-4 py-2.5 ${a.picoConcurrente >= 3 ? 'text-red-600 font-bold' : a.picoConcurrente >= 2 ? 'text-orange-600 font-semibold' : 'text-gray-600'}">${a.picoConcurrente} a la vez</td>
           <td class="px-4 py-2.5 text-gray-500 text-xs">${a.diasConActividad}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
 
   renderChartAuditCobertura(lista, turnoSeg);
+}
+
+// Pico de carga del equipo completo: cuántos casos ACTIVO había al mismo tiempo en el peor
+// momento del período, y entre cuántos analistas distintos — el ratio es la evidencia de
+// sobrecarga que no depende de qué tan rápido responde el cliente.
+function renderPicoEquipo(pico) {
+  const el = document.getElementById('pico-equipo-banner');
+  if (!el) return;
+  if (!pico || !pico.picoCasosSimultaneos) { el.innerHTML = ''; return; }
+
+  const hora = pico.horaPico ? formatearFechaCruda(pico.horaPico) : '—';
+  el.innerHTML = `
+    <div class="rounded-xl border px-4 py-3 flex items-center gap-4 flex-wrap" style="background:#FFF7ED;border-color:#FED7AA">
+      <span class="text-xs font-bold uppercase tracking-wide" style="color:#9A3412">Pico de carga del período</span>
+      <span class="text-sm text-gray-700">
+        <strong style="color:#C2410C">${pico.picoCasosSimultaneos} casos</strong> abiertos a la vez
+        entre solo <strong style="color:#C2410C">${pico.analistasEnPico} analista${pico.analistasEnPico !== 1 ? 's' : ''}</strong>
+        (${hora}) — <strong>${pico.ratioPico} casos por analista</strong> en ese momento.
+      </span>
+    </div>`;
 }
 
 function renderChartAuditCobertura(lista, turnoSeg = 6 * 3600) {
@@ -1649,7 +1719,7 @@ function renderChartAuditCobertura(lista, turnoSeg = 6 * 3600) {
     data: {
       labels,
       datasets: [
-        { type: 'bar', label: 'Trabajando', data: trabajandoMin, backgroundColor: '#00695C', borderRadius: 5, order: 2 },
+        { type: 'bar', label: 'Tiempo en atención', data: trabajandoMin, backgroundColor: '#00695C', borderRadius: 5, order: 2 },
         { type: 'line', label: `Turno (${turnoSeg / 3600}h)`, data: labels.map(() => turnoMin),
           borderColor: '#C41E3A', borderDash: [6, 4], borderWidth: 2, pointRadius: 0, fill: false, order: 1 },
       ]
@@ -1745,28 +1815,31 @@ function renderChartTiemposScatter(data) {
   });
 }
 
+function _ctEstadoTexto(estado) {
+  if (estado === 'ACTIVO')   return { txt: 'Responde',    cls: 'text-green-700 font-semibold' };
+  if (estado === 'INACTIVO') return { txt: 'No responde', cls: 'font-semibold', style: 'color:#B91C1C' };
+  if (estado === 'FINALIZADO') return { txt: 'Cerrado',   cls: 'text-gray-500' };
+  return { txt: '—', cls: 'text-gray-400' };
+}
+
 function renderTablaSinTicket(data) {
   const el = document.getElementById('tabla-sin-ticket');
 
   const tituloEl = document.getElementById('titulo-sin-ticket');
-  if (tituloEl) {
-    const desde = document.getElementById('audit-desde')?.value;
-    const hasta = document.getElementById('audit-hasta')?.value;
-    tituloEl.textContent = (desde || hasta)
-      ? 'Casos sin ticket vinculado (rango elegido)'
-      : 'Casos sin ticket vinculado (hoy)';
-  }
+  if (tituloEl) tituloEl.textContent = 'Casos 3CX';
 
   if (!data?.length) {
-    el.innerHTML = `<p class="text-center text-gray-600 text-sm py-8">Todos los casos del período tienen ticket vinculado</p>`;
+    el.innerHTML = `<p class="text-center text-gray-600 text-sm py-8">Sin casos con ese filtro</p>`;
     return;
   }
 
   el.innerHTML = `
     <table class="min-w-full rounded-xl overflow-hidden border border-gray-100">
-      <thead>${tableHeader(['#', 'Fecha', 'Tipo', 'Chat / Teléfono', 'EDS', 'Analista', 'Estado', 'Ejecución'])}</thead>
+      <thead>${tableHeader(['#', 'Fecha', 'Tipo', 'Chat / Teléfono', 'EDS', 'Analista', 'Ticket 2WD', 'Estado', 'Ejecución'])}</thead>
       <tbody class="bg-white divide-y divide-gray-100">
-        ${data.map(c => `
+        ${data.map(c => {
+          const estado = _ctEstadoTexto(c.estado);
+          return `
         <tr class="hover:bg-gray-50 transition">
           <td class="px-4 py-2.5 text-gray-600 font-mono text-xs">${c.id}</td>
           <td class="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">${formatearFechaCruda(c.fecha)}</td>
@@ -1774,9 +1847,11 @@ function renderTablaSinTicket(data) {
           <td class="px-4 py-2.5 font-bold text-gray-800">${escT(c.numerochat)}</td>
           <td class="px-4 py-2.5 text-gray-600 max-w-28 truncate" title="${escT(c.nombreEDS)}">${escT(c.nombreEDS) || '—'}</td>
           <td class="px-4 py-2.5 text-gray-700 whitespace-nowrap">${escT(c.analista)}</td>
-          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${c.finalizado ? 'text-gray-500' : 'text-green-700 font-semibold'}">${c.finalizado ? 'Finalizado' : 'Abierto'}</td>
+          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${c.ticketReferencia2WD ? 'text-gray-700' : 'text-gray-400 italic'}">${escT(c.ticketReferencia2WD) || 'Sin ticket'}</td>
+          <td class="px-4 py-2.5 text-xs whitespace-nowrap ${estado.cls}" style="${estado.style || ''}">${estado.txt}</td>
           <td class="px-4 py-2.5 font-mono text-xs text-gray-700 whitespace-nowrap">${c.segEjec ? fmtSeg(c.segEjec) : '—'}</td>
-        </tr>`).join('')}
+        </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 }
@@ -1869,6 +1944,75 @@ function renderResumenMasAntiguo(antiguedad) {
         <div class="text-xs text-gray-600 mt-0.5">Estatus: ${t.estatus || '—'} · ver todos en Antigüedad →</div>
       </div>
     </div>`;
+}
+
+function valorPorPuntoPlugin(color = '#00695C') {
+  return {
+    id: 'valorPorPunto',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      chart.data.datasets.forEach((ds, i) => {
+        const meta = chart.getDatasetMeta(i);
+        ctx.save();
+        ctx.fillStyle = color;
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        meta.data.forEach((point, idx) => {
+          const v = ds.data[idx];
+          if (!v) return;
+          ctx.fillText(v, point.x, point.y - 6);
+        });
+        ctx.restore();
+      });
+    }
+  };
+}
+
+function renderChartCasosMes(resp) {
+  destroyChart('chart-casos-mes');
+  const el = document.getElementById('chart-casos-mes');
+  if (!el || !resp) return;
+
+  const modo = resp.modo || 'dia';
+  const data = resp.datos || [];
+
+  const MESES_CORTOS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  let labels, values;
+
+  if (modo === 'mes') {
+    labels = MESES_CORTOS;
+    values = Array.from({ length: 12 }, (_, i) => (data.find(r => r.periodo === i+1) || { total: 0 }).total);
+  } else {
+    const diasEnMes = new Date(anioActual, mesActual, 0).getDate();
+    labels  = Array.from({ length: diasEnMes }, (_, i) => i + 1);
+    values  = labels.map(d => (data.find(r => r.dia === d) || { total: 0 }).total);
+  }
+
+  charts['chart-casos-mes'] = new Chart(el, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: '#00695C', borderWidth: 2,
+        backgroundColor: 'rgba(0,105,92,0.08)',
+        pointRadius: 0, pointHoverRadius: 4,
+        fill: true, tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} casos` } } },
+      layout: { padding: { top: 18 } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9 }, autoSkip: false, maxRotation: 0 } },
+        y: { display: false, beginAtZero: true }
+      }
+    },
+    plugins: [noDataPlugin(), valorPorPuntoPlugin('#00695C')]
+  });
 }
 
 function renderResumenTendencia(resp) {

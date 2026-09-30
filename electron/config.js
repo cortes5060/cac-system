@@ -1,2 +1,2 @@
 // URL del servidor backend
-const API = "http://192.168.1.58:9092";
+const API = "http://200.118.226.75:9092";

@@ -3,7 +3,7 @@ const {
   login,
   getAnalistas, getTodosLosAnalistas, cambiarEstadoAnalista, eliminarAnalista, actualizarOrden, asignarPasswordAnalista,
   getCategorias, crearCategoria, toggleCategoria,
-  getEDS, crearEDS, toggleEDS,
+  getEDS, crearEDS, toggleEDS, getEDSDeTickets,
   getHorarios, getAnalistasHorarios, asignarHorario, crearHorario, actualizarHorario, eliminarHorario,
   getGruposColaborador, crearGrupoColaborador, asignarGrupoAnalista,
   getAlertas, resolverAlerta,
@@ -34,6 +34,7 @@ router.put('/categorias/:id/estado', toggleCategoria);
 
 // EDS
 router.get('/eds', getEDS);
+router.get('/eds-tickets', getEDSDeTickets);
 router.post('/eds', crearEDS);
 router.put('/eds/:id/estado', toggleEDS);
 

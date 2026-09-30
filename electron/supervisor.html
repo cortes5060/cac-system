@@ -92,6 +92,11 @@
     }
     #sel-mes option, #sel-anio option { background-color: #122B4F; color: white; }
 
+    /* Sin esto, las opciones del desplegable toman el tema oscuro del sistema
+       operativo en vez del estilo claro de la app (texto ilegible al abrirlo). */
+    #ct-tipo, #ct-ticket, #ct-estado { background-color: #fff; color: #374151; }
+    #ct-tipo option, #ct-ticket option, #ct-estado option { background-color: #fff; color: #374151; }
+
     /* ── Tarjetas de sección (dentro de cada vista) ────────── */
     .sec-card {
       background: white; border-radius: 1.25rem;
@@ -535,6 +540,20 @@
       <!-- ═══════════════════════ VISTA: TIEMPOS ═══════════════════════ -->
       <div class="view" data-view="vista-tiempos">
 
+        <div class="sec-card mb-6">
+          <div class="sec-header">
+            <div class="sec-label">
+              <div class="sec-accent" style="background:#00695C"></div>
+              <span class="sec-title-text">Casos 3CX atendidos por mes</span>
+            </div>
+          </div>
+          <div class="sec-body p-5">
+            <div style="height:280px">
+              <canvas id="chart-casos-mes"></canvas>
+            </div>
+          </div>
+        </div>
+
         <div class="sec-card">
           <div class="sec-header">
             <div class="sec-label">
@@ -564,36 +583,63 @@
             <div class="grid grid-cols-2 xl:grid-cols-6 gap-3" id="kpi-tiempos"></div>
 
             <!-- ── Gráficos ──────────────────────────────────── -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div>
-                <p class="section-title">Cobertura real por analista (trabajando vs. turno de 6h)</p>
-                <div style="position:relative;height:240px"><canvas id="chart-audit-cobertura"></canvas></div>
-              </div>
-              <div>
-                <p class="section-title">Tiempo promedio por analista</p>
-                <div style="position:relative;height:240px"><canvas id="chart-t-analista"></canvas></div>
-              </div>
+            <div>
+              <p class="section-title">Cobertura real por analista (tiempo en atención vs. turno de 6h)</p>
+              <div style="position:relative;height:260px"><canvas id="chart-audit-cobertura"></canvas></div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div>
-                <p class="section-title">Casos vs. tiempo promedio por analista</p>
-                <div style="position:relative;height:240px"><canvas id="chart-t-scatter"></canvas></div>
+                <p class="section-title">Tiempo promedio por analista</p>
+                <div style="position:relative;height:240px"><canvas id="chart-t-analista"></canvas></div>
               </div>
               <div>
-                <p class="section-title">Tiempo promedio por categoría del ticket (Top 10)</p>
-                <div style="position:relative;height:240px"><canvas id="chart-t-categoria"></canvas></div>
+                <p class="section-title">Casos vs. tiempo promedio por analista</p>
+                <div style="position:relative;height:240px"><canvas id="chart-t-scatter"></canvas></div>
               </div>
             </div>
 
             <!-- ── Tablas ────────────────────────────────────── -->
             <div>
-              <p class="section-title">Detalle por analista (auditoría diaria)</p>
+              <p class="section-title">Categorías con mayor tiempo promedio por caso (Top 10)</p>
+              <div class="tabla-scroll"><div id="tabla-categoria-volumen"></div></div>
+            </div>
+
+            <div>
+              <p class="section-title">Detalle por analista</p>
+              <div id="pico-equipo-banner" class="mb-3"></div>
               <div class="tabla-scroll"><div id="tabla-audit-diario"></div></div>
             </div>
 
             <div>
-              <p class="section-title" id="titulo-sin-ticket">Casos sin ticket vinculado</p>
+              <p class="section-title" id="titulo-sin-ticket">Casos 3CX</p>
+              <div class="no-imprimir flex flex-wrap items-end gap-3 mb-3 bg-gray-50 border border-gray-200 rounded-2xl p-3">
+                <div>
+                  <label class="text-xs text-gray-500 block mb-1">Tipo</label>
+                  <select id="ct-tipo" onchange="cargarAuditoriaDiaria()" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                    <option value="">Chats y llamadas</option>
+                    <option value="CHAT">Solo chats</option>
+                    <option value="LLAMADA">Solo llamadas</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-500 block mb-1">Ticket 2WD</label>
+                  <select id="ct-ticket" onchange="cargarAuditoriaDiaria()" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                    <option value="">Con y sin ticket</option>
+                    <option value="si">Solo con ticket</option>
+                    <option value="no">Solo sin ticket</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-gray-500 block mb-1">Estado</label>
+                  <select id="ct-estado" onchange="cargarAuditoriaDiaria()" class="border border-gray-200 rounded-lg px-3 py-1.5 text-sm">
+                    <option value="">Todos</option>
+                    <option value="ACTIVO">Responde</option>
+                    <option value="INACTIVO">No responde</option>
+                    <option value="FINALIZADO">Cerrado</option>
+                  </select>
+                </div>
+              </div>
               <div class="tabla-scroll"><div id="tabla-sin-ticket"></div></div>
             </div>
 

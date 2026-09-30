@@ -9,9 +9,10 @@ const getCasos = async (req, res) => {
 
     const result = await connection.request()
       .query(`
-        SELECT TOP 10 a.nombre, c.numerochat, c.fecha, c.id, c.tipo, c.nombreEDS, c.ticketReferencia2WD
+        SELECT a.nombre, c.numerochat, c.fecha, c.id, c.tipo, c.nombreEDS, c.ticketReferencia2WD
         FROM casos3cx c
         JOIN analistas a ON c.idAnalista = a.id
+        WHERE CAST(c.fecha AS DATE) = CAST(GETDATE() AS DATE)
         ORDER BY c.fecha DESC, c.id DESC
       `);
 
@@ -45,7 +46,7 @@ const getMisCasos = async (req, res) => {
       .query(`
         SELECT
           c.id, c.numerochat, c.nombreEDS, c.tipo, c.fecha, c.ticketReferencia2WD,
-          t.id AS idTicket, es.nombre AS estatusTicket,
+          t.id AS idTicket, es.nombre AS estatusTicket, t.EDS AS ticketEDS, ct.nombre AS categoria,
           c.idAnalista, ah.nombre AS titular,
           (SELECT TOP 1 ad.nombre FROM casos3cx_traspasos tr JOIN analistas ad ON ad.id = tr.deAnalista
             WHERE tr.idCaso = c.id ORDER BY tr.id DESC) AS recibidoDe,
@@ -71,6 +72,7 @@ const getMisCasos = async (req, res) => {
         ) e ON e.idCaso = c.id
         LEFT JOIN tickets t  ON t.codigo2wd = c.ticketReferencia2WD
         LEFT JOIN estatus es ON es.id = t.idEstatus
+        LEFT JOIN categorias ct ON ct.id = t.idCategoria
         LEFT JOIN analistas ah ON ah.id = c.idAnalista
         WHERE (c.idAnalista = @idAnalista
                OR EXISTS (SELECT 1 FROM casos3cx_traspasos tr

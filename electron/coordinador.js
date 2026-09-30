@@ -9,6 +9,12 @@ if (!coordId) {
     window.location.href = 'index.html';
 }
 
+const sonidoAlertaCoordinador = new Audio('sonidos/alerta-coordinador.mp3');
+function reproducirSonidoAlertaCoordinador() {
+    sonidoAlertaCoordinador.currentTime = 0;
+    sonidoAlertaCoordinador.play().catch(err => console.warn('No se pudo reproducir el sonido de alerta:', err));
+}
+
 // el backend manda hora local con "Z" como si fuera UTC, así que se parsea el texto tal cual
 function formatearFechaCruda(f) {
     const m = String(f).match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
@@ -28,10 +34,11 @@ window.addEventListener('load', () => {
 const VISTAS = [
     { id: 'analistas',          label: 'Analistas',              icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
     { id: 'orden',               label: 'Orden de Cola',           icon: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>' },
-    { id: 'horarios',            label: 'Horarios',                icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
+    { id: 'casos-vivos',         label: 'Casos en Vivo',           icon: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>' },
+    { id: 'buscar',              label: 'Historial 3CX',           icon: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' },
     { id: 'desconexiones',      label: 'Desconexión Supervisada', icon: '<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>' },
+    { id: 'horarios',            label: 'Horarios',                icon: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' },
     { id: 'grupos',              label: 'Grupos de Colaboradores', icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
-    { id: 'buscar',              label: 'Buscar Casos',            icon: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>' },
     { id: 'importar',            label: 'Importar Tickets',        icon: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>' },
     { id: 'importar-clientes',   label: 'Importar Clientes',       icon: '<path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>' },
 ];
@@ -81,6 +88,7 @@ const TIPO_ALERTA_META = {
     DESCONEXION_PENDIENTE:  { label: 'Salida de cola pendiente', color: '#EA580C' },
     ANALISTA_AUSENTE:       { label: 'Fuera de la cola 3CX',  color: '#7C3AED' },
     CASOS_ACUMULADOS:       { label: 'Casos 3CX acumulados',  color: '#1565C0' },
+    CASO_DIA_ANTERIOR:      { label: 'Caso 3CX de día anterior', color: '#B45309' },
 };
 
 let _alertasPanelAbierto = false;
@@ -107,6 +115,7 @@ function renderAlertasBadge(n) {
         btn.classList.remove('ringing');
         void btn.offsetWidth;
         btn.classList.add('ringing');
+        reproducirSonidoAlertaCoordinador();
     }
     _alertasCantidadPrevia = n;
 }
@@ -315,12 +324,14 @@ async function finalizarDesconexionCoordinador(idSolicitud) {
 // router
 async function mostrarSeccion(tipo) {
     const c = document.getElementById('tabContenido');
+    if (_casosVivosTimer && tipo !== 'casos-vivos') { clearInterval(_casosVivosTimer); _casosVivosTimer = null; }
     if (tipo === 'analistas')     await seccionAnalistas(c);
     else if (tipo === 'grupos')   await seccionGrupos(c);
     else if (tipo === 'desconexiones') await seccionDesconexiones(c);
     else if (tipo === 'orden')    await seccionOrden(c);
     else if (tipo === 'horarios') await seccionHorarios(c);
     else if (tipo === 'buscar')   await seccionBuscar(c);
+    else if (tipo === 'casos-vivos') await seccionCasosVivos(c);
     else if (tipo === 'importar')           await seccionImportar(c);
     else if (tipo === 'importar-clientes') await seccionImportarClientes(c);
 }
@@ -1073,68 +1084,149 @@ async function eliminarHorario(id) {
 
 let _buscarTimer = null;
 
+let _busAnalistas = [];
+let _busEDS = [];
+
+// Filtro de búsqueda de casos: campo de texto/fecha en una fila, clasificación
+// (selects) en otra, separadas por un rótulo — evita que se vea como una sola
+// maraña de 8 campos idénticos.
+function _busInyectarEstilos() {
+    if (document.getElementById('bus-estilos')) return;
+    const style = document.createElement('style');
+    style.id = 'bus-estilos';
+    style.textContent = `
+        .bus-fila { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .bus-fila-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+        @media (max-width: 1100px) { .bus-fila-5 { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 860px) { .bus-fila, .bus-fila-5 { grid-template-columns: repeat(2, 1fr); } }
+        .bus-rotulo {
+            font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+            color: #9CA3AF; margin: 18px 0 10px; padding-top: 14px; border-top: 1px solid #E5E7EB;
+        }
+        .bus-fila:first-of-type + .bus-rotulo, .bus-panel > .bus-rotulo:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+    `;
+    document.head.appendChild(style);
+}
+
+function _busCampo(label, inputHtml) {
+    return `<div><label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">${label}</label>${inputHtml}</div>`;
+}
+
+const _busInputCls = 'w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition';
+const _busSelectCls = 'w-full border border-gray-200 bg-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition';
+
 async function seccionBuscar(c) {
-    c.innerHTML = `
+    cargando(c);
+    try {
+        [_busAnalistas, _busEDS] = await Promise.all([
+            fetch(`${API}/api/coordinador/analistas`).then(r => r.json()),
+            fetch(`${API}/api/coordinador/eds-tickets`).then(r => r.json()),
+        ]);
+        _busInyectarEstilos();
+
+        c.innerHTML = `
         <div class="fade-in">
-            ${seccionHeader('Buscar Casos 3CX', '#1565C0')}
-            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4">
-                <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Número de Chat</label>
-                    <input id="bus_numero" type="text" inputmode="numeric" placeholder="Ej. 123456789"
-                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+            ${seccionHeader('Historial 3CX', '#1565C0')}
+            <div class="bus-panel bg-gray-50 border border-gray-200 rounded-2xl p-5 mb-4">
+                <div class="bus-rotulo">Búsqueda</div>
+                <div class="bus-fila-5">
+                    ${_busCampo('Número de Chat', `<input id="bus_numero" type="text" inputmode="numeric" placeholder="Ej. 123456789" class="${_busInputCls}"/>`)}
+                    ${_busCampo('Ticket 2WD', `<input id="bus_ticket_numero" type="text" placeholder="Ej. 2WD-123456" class="${_busInputCls}"/>`)}
+                    ${_busCampo('EDS', `
+                        <select id="bus_eds" onchange="ejecutarBusqueda()" class="${_busSelectCls}">
+                            <option value="">Todas</option>
+                            ${_busEDS.map(e => `<option value="${escapeHtml(e.nombre)}">${escapeHtml(e.nombre)}</option>`).join('')}
+                        </select>`)}
+                    ${_busCampo('Fecha Inicio', `<input id="bus_fecha_ini" type="date" class="${_busInputCls}"/>`)}
+                    ${_busCampo('Fecha Fin', `<input id="bus_fecha_fin" type="date" class="${_busInputCls}"/>`)}
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Nombre EDS</label>
-                    <input id="bus_eds" type="text" placeholder="Ej. EDS Centro"
-                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+
+                <div class="bus-rotulo">Clasificación</div>
+                <div class="bus-fila">
+                    ${_busCampo('Tipo', `
+                        <select id="bus_tipo" onchange="ejecutarBusqueda()" class="${_busSelectCls}">
+                            <option value="">Chats y llamadas</option>
+                            <option value="CHAT">Solo chats</option>
+                            <option value="LLAMADA">Solo llamadas</option>
+                        </select>`)}
+                    ${_busCampo('Analista', `
+                        <select id="bus_analista" onchange="ejecutarBusqueda()" class="${_busSelectCls}">
+                            <option value="">Todos</option>
+                            ${_busAnalistas.map(a => `<option value="${a.id}">${escapeHtml(a.nombre)}</option>`).join('')}
+                        </select>`)}
+                    ${_busCampo('Estado', `
+                        <select id="bus_estado" onchange="ejecutarBusqueda()" class="${_busSelectCls}">
+                            <option value="">Todos</option>
+                            <option value="ACTIVO">Responde</option>
+                            <option value="INACTIVO">No responde</option>
+                            <option value="FINALIZADO">Cerrado</option>
+                        </select>`)}
+                    ${_busCampo('Ticket 2WD', `
+                        <select id="bus_ticket" onchange="ejecutarBusqueda()" class="${_busSelectCls}">
+                            <option value="">Con y sin ticket</option>
+                            <option value="si">Solo con ticket</option>
+                            <option value="no">Solo sin ticket</option>
+                        </select>`)}
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha Inicio</label>
-                    <input id="bus_fecha_ini" type="date"
-                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
-                </div>
-                <div>
-                    <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Fecha Fin</label>
-                    <input id="bus_fecha_fin" type="date"
-                        class="w-full border border-gray-200 bg-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition"/>
+
+                <div class="text-right mt-4">
+                    <button onclick="limpiarBusqueda()" class="text-xs font-semibold text-gray-500 hover:text-gray-700">Limpiar filtros</button>
                 </div>
             </div>
             <div id="bus_resultados">
-                <div class="text-center py-10 text-gray-600 text-sm">Escribe algo para buscar</div>
+                <div class="text-center py-10 text-gray-600 text-sm">Escribe algo o elige un filtro para buscar</div>
             </div>
         </div>`;
 
-    const debounce = () => {
-        clearTimeout(_buscarTimer);
-        _buscarTimer = setTimeout(ejecutarBusqueda, 350);
-    };
+        const debounce = () => {
+            clearTimeout(_buscarTimer);
+            _buscarTimer = setTimeout(ejecutarBusqueda, 350);
+        };
 
-    document.getElementById('bus_numero').addEventListener('input', debounce);
-    document.getElementById('bus_eds').addEventListener('input', debounce);
-    document.getElementById('bus_fecha_ini').addEventListener('change', ejecutarBusqueda);
-    document.getElementById('bus_fecha_fin').addEventListener('change', ejecutarBusqueda);
+        document.getElementById('bus_numero').addEventListener('input', debounce);
+        document.getElementById('bus_ticket_numero').addEventListener('input', debounce);
+        document.getElementById('bus_fecha_ini').addEventListener('change', ejecutarBusqueda);
+        document.getElementById('bus_fecha_fin').addEventListener('change', ejecutarBusqueda);
+    } catch { errorHtml(c); }
+}
+
+function limpiarBusqueda() {
+    ['bus_numero', 'bus_ticket_numero', 'bus_fecha_ini', 'bus_fecha_fin'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['bus_eds', 'bus_tipo', 'bus_analista', 'bus_estado', 'bus_ticket'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ejecutarBusqueda();
 }
 
 async function ejecutarBusqueda() {
-    const numero   = document.getElementById('bus_numero')?.value.trim();
-    const eds      = document.getElementById('bus_eds')?.value.trim();
-    const fechaIni = document.getElementById('bus_fecha_ini')?.value;
-    const fechaFin = document.getElementById('bus_fecha_fin')?.value;
-    const div      = document.getElementById('bus_resultados');
+    const numero    = document.getElementById('bus_numero')?.value.trim();
+    const ticketNumero = document.getElementById('bus_ticket_numero')?.value.trim();
+    const eds       = document.getElementById('bus_eds')?.value.trim();
+    const fechaIni  = document.getElementById('bus_fecha_ini')?.value;
+    const fechaFin  = document.getElementById('bus_fecha_fin')?.value;
+    const tipo      = document.getElementById('bus_tipo')?.value;
+    const analista  = document.getElementById('bus_analista')?.value;
+    const estado    = document.getElementById('bus_estado')?.value;
+    const ticket    = document.getElementById('bus_ticket')?.value;
+    const div       = document.getElementById('bus_resultados');
     if (!div) return;
 
-    if (!numero && !eds && !fechaIni && !fechaFin) {
-        div.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Escribe algo para buscar</div>';
+    const hayFiltro = numero || ticketNumero || eds || fechaIni || fechaFin || tipo || analista || estado || ticket;
+    if (!hayFiltro) {
+        div.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Escribe algo o elige un filtro para buscar</div>';
         return;
     }
 
     div.innerHTML = '<div class="text-center py-6 text-gray-600 text-sm">Buscando...</div>';
 
     const qs = new URLSearchParams();
-    if (numero)   qs.set('numero', numero);
-    if (eds)      qs.set('nombreeds', eds);
-    if (fechaIni) qs.set('fechaini', fechaIni);
-    if (fechaFin) qs.set('fechafin', fechaFin);
+    if (numero)       qs.set('numero', numero);
+    if (ticketNumero) qs.set('ticketNumero', ticketNumero);
+    if (eds)          qs.set('nombreeds', eds);
+    if (fechaIni)  qs.set('fechaini', fechaIni);
+    if (fechaFin)  qs.set('fechafin', fechaFin);
+    if (tipo)      qs.set('tipo', tipo);
+    if (analista)  qs.set('idAnalista', analista);
+    if (estado)    qs.set('estado', estado);
+    if (ticket)    qs.set('conTicket', ticket);
 
     try {
         const data = await fetch(`${API}/api/coordinador/casos?${qs}`).then(r => r.json());
@@ -1149,25 +1241,29 @@ async function ejecutarBusqueda() {
                 <table class="min-w-full text-sm">
                     <thead>
                         <tr style="background:#122B4F">
-                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">ID</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Número Chat</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Caso</th>
                             <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">EDS</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Fecha</th>
-                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widests uppercase">Analista</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Analista</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Estado</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Ejecución</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Ticket 2WD</th>
+                            <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Categoría</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-100">
-                        ${data.map(c => {
-                            const fecha = formatearFechaCruda(c.fecha);
-                            return `
+                        ${data.map(c => `
                             <tr class="hover:bg-blue-50 transition">
-                                <td class="px-4 py-3 text-gray-600 font-mono text-xs">#${c.id}</td>
-                                <td class="px-4 py-3 font-bold text-gray-800">${c.numerochat}</td>
-                                <td class="px-4 py-3 text-gray-600">${c.nombreEDS || '—'}</td>
-                                <td class="px-4 py-3 text-gray-500">${fecha}</td>
-                                <td class="px-4 py-3 text-gray-700">${c.nombre}</td>
-                            </tr>`;
-                        }).join('')}
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-2">${_cvBadgeTipo(c.tipo)}<span class="font-bold text-gray-800">${escapeHtml(c.numerochat)}</span></div>
+                                    <div class="text-xs text-gray-600 mt-0.5">#${c.id} · ${formatearFechaCruda(c.fecha)}</div>
+                                </td>
+                                <td class="px-4 py-3 ${c.ticketEDS ? 'text-gray-700' : 'text-gray-400 italic'}">${escapeHtml(c.ticketEDS) || 'Sin ticket'}</td>
+                                <td class="px-4 py-3 text-gray-700">${escapeHtml(c.nombre)}</td>
+                                <td class="px-4 py-3">${_cvBadgeEstado(c.estado)}</td>
+                                <td class="px-4 py-3 font-mono text-gray-800">${c.segEjec ? _cvFormatearDuracion(c.segEjec) : '—'}</td>
+                                <td class="px-4 py-3 ${c.ticketReferencia2WD ? 'text-gray-700' : 'text-gray-400 italic'}">${escapeHtml(c.ticketReferencia2WD) || 'Sin ticket'}</td>
+                                <td class="px-4 py-3 text-gray-600">${escapeHtml(c.categoria) || '—'}</td>
+                            </tr>`).join('')}
                     </tbody>
                 </table>
                 <div class="px-4 py-2 text-xs text-gray-600 bg-gray-50 border-t border-gray-100">
@@ -1177,6 +1273,197 @@ async function ejecutarBusqueda() {
     } catch {
         div.innerHTML = '<div class="text-center py-10 text-red-400 text-sm">Error al buscar</div>';
     }
+}
+
+// CASOS EN VIVO — se arma en el frontend con endpoints que ya existen: la lista de
+// analistas y, por cada uno, /api/casos/mis/:id (el mismo que usa "Mis Casos" del
+// analista), filtrando acá los que ya están FINALIZADO. No hay endpoint nuevo en el backend.
+
+let _casosVivosData = [];
+let _casosVivosCargadoEn = 0;
+let _casosVivosTimer = null;
+let _cvFiltroTipo = 'CHAT';
+let _cvFiltroAnalista = '';
+let _cvFiltroEstado = 'abiertos';
+const CV_UMBRAL_ALERTA_SEG = 3600; // 1 hora
+
+function _cvFormatearDuracion(seg) {
+    seg = Math.max(0, Math.floor(seg));
+    const h = Math.floor(seg / 3600);
+    const m = Math.floor((seg % 3600) / 60);
+    const s = seg % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function _cvBadgeTipo(tipo) {
+    return tipo === 'LLAMADA'
+        ? '<span class="px-2 py-0.5 rounded-full text-xs font-semibold" style="background:#FFF7ED;color:#C2410C">📞 Llamada</span>'
+        : '<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">💬 Chat</span>';
+}
+
+function _cvBadgeEstado(estado) {
+    if (estado === 'ACTIVO') return '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">Responde</span>';
+    if (estado === 'FINALIZADO') return '<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-600">Cerrado</span>';
+    return '<span class="px-2.5 py-1 rounded-full text-xs font-bold" style="background:#FEF2F2;color:#B91C1C">No responde</span>';
+}
+
+async function seccionCasosVivos(c) {
+    cargando(c);
+    try {
+        const analistas = await fetch(`${API}/api/coordinador/analistas`).then(r => r.json());
+        const porAnalista = await Promise.all(
+            analistas.map(a => fetch(`${API}/api/casos/mis/${a.id}`).then(r => r.json())
+                .then(filas => filas.map(caso => ({ ...caso, _consultadoPor: a.id })))
+                .catch(() => []))
+        );
+
+        // Un caso traspasado sale en la lista de "mis casos" tanto de quien lo pasó como de
+        // quien lo recibió (para que cada uno vea su historial) — acá se junta todo en una
+        // sola tabla, así que hay que quedarse solo con una copia por caso: la pedida a
+        // nombre de su dueño actual, porque esa es la que trae los tiempos completos
+        // (la del ex-dueño solo suma los tramos que le pertenecen a él).
+        const porId = new Map();
+        for (const caso of porAnalista.flat()) {
+            const previo = porId.get(caso.id);
+            const esDelDuenoActual = Number(caso._consultadoPor) === Number(caso.idAnalista);
+            if (!previo || esDelDuenoActual) porId.set(caso.id, caso);
+        }
+        _casosVivosData = [...porId.values()];
+        _casosVivosCargadoEn = Date.now();
+
+        c.innerHTML = `
+            <div class="fade-in">
+                ${seccionHeader('Casos en Vivo', '#1565C0')}
+                <div class="flex flex-wrap items-end gap-3 mb-5 bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Tipo</label>
+                        <select id="cv_tipo" onchange="_cvAplicarFiltros()"
+                            class="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition">
+                            <option value="CHAT" ${_cvFiltroTipo === 'CHAT' ? 'selected' : ''}>Solo chats</option>
+                            <option value="LLAMADA" ${_cvFiltroTipo === 'LLAMADA' ? 'selected' : ''}>Solo llamadas</option>
+                            <option value="" ${_cvFiltroTipo === '' ? 'selected' : ''}>Chats y llamadas</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Analista</label>
+                        <select id="cv_analista" onchange="_cvAplicarFiltros()"
+                            class="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition">
+                            <option value="">Todos</option>
+                            ${analistas.map(a => `<option value="${a.id}" ${String(_cvFiltroAnalista) === String(a.id) ? 'selected' : ''}>${escapeHtml(a.nombre)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Estado</label>
+                        <select id="cv_estado" onchange="_cvAplicarFiltros()"
+                            class="border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 transition">
+                            <option value="abiertos" ${_cvFiltroEstado === 'abiertos' ? 'selected' : ''}>Solo abiertos</option>
+                            <option value="cerrados" ${_cvFiltroEstado === 'cerrados' ? 'selected' : ''}>Solo cerrados</option>
+                            <option value="" ${_cvFiltroEstado === '' ? 'selected' : ''}>Abiertos y cerrados</option>
+                        </select>
+                    </div>
+                    <button onclick="activarTab('casos-vivos')"
+                        class="text-xs font-semibold px-4 py-2 rounded-xl text-white hover:opacity-90 transition btn-navy">
+                        ↻ Refrescar
+                    </button>
+                </div>
+                <div id="cv_tabla"></div>
+            </div>`;
+
+        _cvRenderTabla();
+        if (_casosVivosTimer) clearInterval(_casosVivosTimer);
+        _casosVivosTimer = setInterval(_cvActualizarTiempos, 1000);
+    } catch { errorHtml(c); }
+}
+
+function _cvAplicarFiltros() {
+    _cvFiltroTipo = document.getElementById('cv_tipo')?.value ?? '';
+    _cvFiltroAnalista = document.getElementById('cv_analista')?.value ?? '';
+    _cvFiltroEstado = document.getElementById('cv_estado')?.value ?? '';
+    _cvRenderTabla();
+}
+
+function _cvRenderTabla() {
+    const cont = document.getElementById('cv_tabla');
+    if (!cont) return;
+
+    const filtrados = _casosVivosData.filter(caso =>
+        (!_cvFiltroTipo || caso.tipo === _cvFiltroTipo) &&
+        (!_cvFiltroAnalista || String(caso.idAnalista) === String(_cvFiltroAnalista)) &&
+        (!_cvFiltroEstado
+            || (_cvFiltroEstado === 'abiertos' && caso.estado !== 'FINALIZADO')
+            || (_cvFiltroEstado === 'cerrados' && caso.estado === 'FINALIZADO'))
+    );
+
+    if (!filtrados.length) {
+        cont.innerHTML = '<div class="text-center py-10 text-gray-600 text-sm">Sin casos con ese filtro</div>';
+        return;
+    }
+
+    cont.innerHTML = `
+        <div class="overflow-x-auto rounded-xl border border-gray-200">
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr style="background:#122B4F">
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Caso</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">EDS</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Analista</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Estado</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Con respuesta</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Sin respuesta</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Ticket 2WD</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold text-blue-200 tracking-widest uppercase">Categoría</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    ${filtrados.map(caso => `
+                        <tr class="hover:bg-blue-50 transition" id="cv_row-${caso.id}">
+                            <td class="px-4 py-3">
+                                <div class="flex items-center gap-2">${_cvBadgeTipo(caso.tipo)}<span class="font-bold text-gray-800">${escapeHtml(caso.numerochat)}</span></div>
+                                <div class="text-xs text-gray-600 mt-0.5">#${caso.id}</div>
+                            </td>
+                            <td class="px-4 py-3 ${caso.ticketEDS ? 'text-gray-700' : 'text-gray-400 italic'}">${escapeHtml(caso.ticketEDS) || 'Sin ticket'}</td>
+                            <td class="px-4 py-3 text-gray-700">${escapeHtml(caso.titular)}</td>
+                            <td class="px-4 py-3">${_cvBadgeEstado(caso.estado)}</td>
+                            <td class="px-4 py-3 font-mono" id="cv_act-${caso.id}"></td>
+                            <td class="px-4 py-3 font-mono" id="cv_ina-${caso.id}"></td>
+                            <td class="px-4 py-3 ${caso.ticketReferencia2WD ? 'text-gray-700' : 'text-gray-400 italic'}">${escapeHtml(caso.ticketReferencia2WD) || 'Sin ticket'}</td>
+                            <td class="px-4 py-3 text-gray-600">${escapeHtml(caso.categoria) || '—'}</td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>
+            <div class="px-4 py-2 text-xs text-gray-600 bg-gray-50 border-t border-gray-100">
+                ${filtrados.length} caso${filtrados.length !== 1 ? 's' : ''}
+            </div>
+        </div>`;
+
+    _cvActualizarTiempos();
+}
+
+// los tiempos vienen del servidor al cargar; el tramo abierto sigue corriendo acá igual que en "Mis Casos".
+// Además, cada segundo revisa si un caso lleva más de 1h sin responder (alerta roja) o más de 1h
+// respondiendo sin cerrarse (advertencia naranja), y resalta la fila.
+function _cvActualizarTiempos() {
+    const extra = (Date.now() - _casosVivosCargadoEn) / 1000;
+    _casosVivosData.forEach(caso => {
+        const act = Number(caso.segActivo) + (caso.estado === 'ACTIVO' ? extra : 0);
+        const ina = Number(caso.segInactivo) + (caso.estado === 'INACTIVO' ? extra : 0);
+        const elAct = document.getElementById(`cv_act-${caso.id}`);
+        const elIna = document.getElementById(`cv_ina-${caso.id}`);
+        const fila  = document.getElementById(`cv_row-${caso.id}`);
+        if (elAct) elAct.textContent = _cvFormatearDuracion(act);
+        if (elIna) elIna.textContent = _cvFormatearDuracion(ina);
+
+        const alertaRoja = caso.estado === 'INACTIVO' && ina >= CV_UMBRAL_ALERTA_SEG;
+        const alertaNaranja = caso.estado === 'ACTIVO' && act >= CV_UMBRAL_ALERTA_SEG;
+
+        if (elIna) elIna.style.color = alertaRoja ? '#B91C1C' : '';
+        if (elIna) elIna.style.fontWeight = alertaRoja ? '700' : '';
+        if (elAct) elAct.style.color = alertaNaranja ? '#C2410C' : '';
+        if (elAct) elAct.style.fontWeight = alertaNaranja ? '700' : '';
+        if (fila) fila.style.background = alertaRoja ? '#FEF2F2' : alertaNaranja ? '#FFF7ED' : '';
+    });
 }
 
 // IMPORTAR EXCEL
